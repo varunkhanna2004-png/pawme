@@ -7,6 +7,7 @@ import Login from './screens/Login';
 import Discover from './screens/Discover';
 import Matches from './screens/Matches';
 import Chat from './screens/Chat';
+import Moderation from './screens/Moderation';
 
 export default function App() {
   const { session, owner, pet, profileLoading, profileError, reloadProfile, signOut } = useAuth();
@@ -22,6 +23,20 @@ export default function App() {
   if (owner?.status === 'suspended') {
     return <FullScreenMessage title="Account suspended" body="This account has been suspended for breaking PAWME's community rules." action={{ label: 'Sign out', onClick: () => void signOut() }} />;
   }
+  const isModerator = owner?.role === 'moderator';
+  // A moderator account without a pet is just the queue.
+  if (isModerator && (!owner?.cluster_id || !pet)) {
+    return (
+      <div className="mx-auto flex h-full max-w-md flex-col bg-cream">
+        <OfflineBanner />
+        <div className="bg-ink px-3 py-0.5 text-center text-[10px] tracking-wide text-white/80">
+          MODERATOR · {owner.display_name} · <button className="underline" onClick={() => void signOut()}>sign out</button>
+        </div>
+        <main className="relative min-h-0 flex-1"><Moderation /></main>
+      </div>
+    );
+  }
+
   // The spine assumes an admitted owner with a pet. Screens 3 (location / waitlist)
   // and 4 (add pet) come next; until then, say so plainly instead of breaking.
   if (!owner?.cluster_id || !pet) {
@@ -47,10 +62,11 @@ export default function App() {
           <Route path="/" element={<Discover />} />
           <Route path="/matches" element={<Matches />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
+          {isModerator && <Route path="/moderation" element={<Moderation />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <TabBar />
+      <TabBar showModeration={isModerator} />
     </div>
   );
 }

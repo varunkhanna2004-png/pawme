@@ -6,6 +6,7 @@ import { errorCopy } from '../lib/format';
 import SwipeDeck, { type SwipeDeckHandle } from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
 import { Toast, useOnline } from '../components/States';
+import SafetySheet, { type SafetyOutcome } from '../components/SafetySheet';
 
 type SwipeAction = Enums<'swipe_action'>;
 type Status = 'loading' | 'ready' | 'error';
@@ -26,6 +27,7 @@ export default function Discover() {
   const [toast, setToast] = useState<string | null>(null);
   const [match, setMatch] = useState<{ card: DeckCard; conversationId: string } | null>(null);
   const [myPhoto, setMyPhoto] = useState<string>();
+  const [safetyFor, setSafetyFor] = useState<DeckCard | null>(null);
 
   // Pets swiped this session. A refill can race an in-flight swipe, so the
   // server may briefly still return a card we have already dealt with.
@@ -127,6 +129,18 @@ export default function Discover() {
     void refreshSwipeState();
   }
 
+  // After a report or block the card leaves the deck for good. A block already
+  // hides the pair from each other server-side; a report on its own is recorded
+  // as a pass so the pet doesn't come straight back.
+  function handleSafetyDone(card: DeckCard, outcome: SafetyOutcome) {
+    setSafetyFor(null);
+    swiped.current.add(card.pet_id);
+    setCards((current) => current.filter((c) => c.pet_id !== card.pet_id));
+    setLastSwiped(null);
+    if (outcome === 'reported') void supabase.rpc('swipe', { p_from_pet_id: petId, p_to_pet_id: card.pet_id, p_action: 'pass' }).then(() => undefined);
+    setToast(outcome === 'blocked' ? 'Blocked. You won\'t see each other again.' : 'Thanks — report sent to our moderators.');
+  }
+
   async function invite() {
     const url = `${window.location.origin}/?ref=${owner?.referral_code ?? ''}`;
     const text = 'Join me on PAWME — playdates and friends for our pets, right here in Makati 🐾';
@@ -144,7 +158,7 @@ export default function Discover() {
   const top = cards[0];
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <Toast message={toast} onDone={() => setToast(null)} />
       <header className="flex items-center justify-between px-5 pb-1 pt-3">
         <h1 className="text-2xl font-extrabold tracking-tight text-brand">PAWME</h1>
@@ -175,7 +189,7 @@ export default function Discover() {
         )}
 
         {status === 'ready' && top && (
-          <SwipeDeck ref={deckRef} cards={cards} canSuper={supersLeft > 0} onSwiped={handleSwiped} onSuperBlocked={() => setToast(errorCopy('SUPER_PAW_LIMIT'))} />
+          <SwipeDeck ref={deckRef} cards={cards} canSuper={supersLeft > 0} onSwiped={handleSwiped} onSuperBlocked={() => setToast(errorCopy('SUPER_PAW_LIMIT'))} onSafety={setSafetyFor} />
         )}
       </div>
 
@@ -185,6 +199,15 @@ export default function Discover() {
         <RoundButton label={`Super Paw (${supersLeft} left today)`} onClick={() => deckRef.current?.swipe('super')} disabled={!top} className={`h-12 w-12 text-xl ${supersLeft > 0 ? 'text-super' : 'text-black/20'}`}>★</RoundButton>
         <RoundButton label="Like" onClick={() => deckRef.current?.swipe('like')} disabled={!top} className="h-16 w-16 text-3xl text-like">♥</RoundButton>
       </div>
+
+      {safetyFor && (
+        <SafetySheet
+          target={{ ownerId: safetyFor.owner_id, ownerName: safetyFor.owner_name, petId: safetyFor.pet_id, petName: safetyFor.name }}
+          actions={['block', 'report']}
+          onClose={() => setSafetyFor(null)}
+          onDone={(outcome) => handleSafetyDone(safetyFor, outcome)}
+        />
+      )}
 
       {match && (
         <MatchOverlay

@@ -14,6 +14,8 @@ interface Props {
   canSuper: boolean;
   onSwiped: (card: DeckCard, action: SwipeAction) => void;
   onSuperBlocked: () => void;
+  /** Report / block from a card (§9). */
+  onSafety: (card: DeckCard) => void;
 }
 
 const SWIPE_X = 110; // px of travel that commits a like / pass
@@ -27,7 +29,7 @@ const haptic = (ms: number) => navigator.vibrate?.(ms);
  * touching only `transform` and `opacity` (compositor-only), which is what
  * keeps the drag at 60 fps on a mid-range phone.
  */
-const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck({ cards, canSuper, onSwiped, onSuperBlocked }, ref) {
+const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck({ cards, canSuper, onSwiped, onSuperBlocked, onSafety }, ref) {
   const top = cards[0];
   const topEl = useRef<HTMLDivElement>(null);
   const nextEl = useRef<HTMLDivElement>(null);
@@ -175,6 +177,16 @@ const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck({ cards,
         aria-label={`${top.name}. Swipe right to like, left to pass, up for Super Paw.`}
       >
         <PetCard card={top} photoIndex={photoIndex} />
+        {/* stopPropagation: pressing this must not begin a drag or count as a photo tap */}
+        <button
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+          onClick={() => onSafety(top)}
+          aria-label={`Report or block ${top.name}'s owner`}
+          className="absolute right-3 top-6 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-lg text-white backdrop-blur-sm active:bg-black/60"
+        >
+          ⚑
+        </button>
         <div ref={likeStamp} className="pointer-events-none absolute left-5 top-8 -rotate-12 rounded-xl border-4 border-like px-3 py-1 text-3xl font-extrabold text-like opacity-0">LIKE</div>
         <div ref={nopeStamp} className="pointer-events-none absolute right-5 top-8 rotate-12 rounded-xl border-4 border-nope px-3 py-1 text-3xl font-extrabold text-nope opacity-0">NOPE</div>
         <div ref={superStamp} className="pointer-events-none absolute inset-x-0 bottom-40 mx-auto w-fit -rotate-6 rounded-xl border-4 border-super bg-white/20 px-3 py-1 text-3xl font-extrabold text-super opacity-0">SUPER PAW</div>

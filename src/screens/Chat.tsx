@@ -1,19 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { petPhotoUrl, supabase, type InboxRow, type Tables } from '../lib/supabase';
 import { errorCopy, timeShort } from '../lib/format';
 import { usePrivateChannel } from '../lib/realtime';
 import { Spinner, useOnline } from '../components/States';
+import SafetySheet, { type SafetyTarget } from '../components/SafetySheet';
 
 type Message = Tables<'messages'> & { pending?: boolean; failed?: boolean };
 
 // Screen 8 — the spine version: realtime text, typing indicator, "Seen".
-// TODO(next step, §8/§9): photos, playdate proposal sheet, block / report / unmatch menu.
+// Block / report / unmatch live behind the ⋯ menu (§8: reachable from every conversation).
+// TODO(next step, §8): photos, playdate proposal sheet.
 export default function Chat() {
   const { conversationId } = useParams<{ conversationId: string }>();
   const { session } = useAuth();
   const online = useOnline();
+  const navigate = useNavigate();
+  // Captured when the menu opens: blocking ends the match, which (via Realtime) flips this
+  // screen to "not available" — the sheet must survive that to show its confirmation.
+  const [safetyTarget, setSafetyTarget] = useState<SafetyTarget | null>(null);
   const userId = session!.user.id;
 
   const [info, setInfo] = useState<InboxRow | null | undefined>(undefined); // undefined = loading, null = not found
@@ -89,6 +95,8 @@ export default function Chat() {
           const conv = payload.new as Tables<'conversations'>;
           setOtherReadAt(conv.owner_a_id === userId ? conv.b_last_read_at : conv.a_last_read_at);
         })
+        // The match ending (they unmatched or blocked) must close this chat live, for both people.
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'matches' }, () => void load())
         .on('broadcast', { event: 'typing' }, ({ payload }) => {
           if (payload.user === userId) return;
           setOtherTyping(true);
@@ -115,6 +123,7 @@ export default function Chat() {
     const id = retryId ?? crypto.randomUUID();
     upsert({ id, conversation_id: conversationId, sender_id: userId, kind: 'text', body, photo_path: null, payload: null, created_at: new Date().toISOString(), pending: true });
     const { data, error } = await supabase.from('messages').insert({ id, conversation_id: conversationId, body }).select().single();
+    if (error?.code === '42501') return void load(); // RLS refused: the match has ended (unmatched or blocked)
     if (error && error.code !== '23505') {
       upsert({ id, conversation_id: conversationId, sender_id: userId, kind: 'text', body, photo_path: null, payload: null, created_at: new Date().toISOString(), failed: true });
       return;
@@ -138,6 +147,15 @@ export default function Chat() {
     }
   }
 
+  const safetySheet = safetyTarget && (
+    <SafetySheet
+      target={safetyTarget}
+      actions={['unmatch', 'block', 'report']}
+      onClose={() => setSafetyTarget(null)}
+      onDone={(outcome) => (outcome === 'reported' ? setSafetyTarget(null) : navigate('/matches', { replace: true }))}
+    />
+  );
+
   if (loadError && info === undefined) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
@@ -150,11 +168,13 @@ export default function Chat() {
   if (info === undefined) return <div className="flex h-full items-center justify-center"><Spinner /></div>;
   if (info === null) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
-        <h2 className="text-xl font-bold">This chat isn't available</h2>
-        <p className="text-muted">The match may have ended.</p>
-        <Link to="/matches" className="rounded-full bg-brand px-6 py-3 font-semibold text-white">Back to matches</Link>
-      </div>
+      <Frame sheet={safetySheet}>
+        <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center">
+          <h2 className="text-xl font-bold">This chat isn't available</h2>
+          <p className="text-muted">The match may have ended.</p>
+          <Link to="/matches" className="rounded-full bg-brand px-6 py-3 font-semibold text-white">Back to matches</Link>
+        </div>
+      </Frame>
     );
   }
 
@@ -165,6 +185,7 @@ export default function Chat() {
   const openers = [`Hi ${info.other_owner_name ?? 'there'}! What's ${info.other_pet_name}'s favorite park?`, `${info.my_pet_name} would love a playdate — is ${info.other_pet_name} free this weekend?`, `How does ${info.other_pet_name} get along with new friends?`];
 
   return (
+    <Frame sheet={safetySheet}>
     <div className="flex h-full flex-col bg-cream">
       <header className="flex items-center gap-3 border-b border-black/5 bg-white px-3 py-2.5">
         <Link to="/matches" aria-label="Back to matches" className="px-2 text-2xl text-muted">‹</Link>
@@ -173,6 +194,7 @@ export default function Chat() {
           <div className="truncate font-bold leading-tight">{info.other_pet_name}</div>
           <div className="truncate text-xs text-muted">with {info.other_owner_name ?? 'their owner'}</div>
         </div>
+        <button onClick={() => setSafetyTarget({ ownerId: info.other_owner_id, ownerName: info.other_owner_name, petId: info.other_pet_id, petName: info.other_pet_name, matchId: info.match_id, lastMessageId: [...messages].reverse().find((m) => m.sender_id !== userId && !m.pending)?.id })} aria-label="Safety options: unmatch, block or report" className="ml-auto flex h-10 w-10 items-center justify-center rounded-full text-2xl text-muted active:bg-black/5">⋯</button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
@@ -210,6 +232,20 @@ export default function Chat() {
         <input value={draft} onChange={(e) => onDraftChange(e.target.value)} maxLength={2000} placeholder={online ? 'Message…' : "You're offline"} aria-label="Message" className="min-w-0 flex-1 rounded-full bg-cream px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand/40" />
         <button disabled={!draft.trim()} aria-label="Send" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand text-lg text-white active:bg-brand-dark disabled:opacity-40">➤</button>
       </form>
+    </div>
+    </Frame>
+  );
+}
+
+// Both the chat and its "not available" state render inside the same Frame, with
+// the safety sheet in the same slot. Blocking someone ends the match, which flips
+// the chat to "not available" underneath the open sheet; keeping the slot stable
+// stops React remounting the sheet and losing its confirmation step.
+function Frame({ sheet, children }: { sheet: ReactNode; children: ReactNode }) {
+  return (
+    <div className="relative h-full">
+      {children}
+      {sheet}
     </div>
   );
 }

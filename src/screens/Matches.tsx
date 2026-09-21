@@ -5,12 +5,14 @@ import { petPhotoUrl, supabase, type InboxRow } from '../lib/supabase';
 import { errorCopy, timeShort } from '../lib/format';
 import { usePrivateChannel } from '../lib/realtime';
 import { Spinner, useOnline } from '../components/States';
+import SafetySheet from '../components/SafetySheet';
 
 export default function Matches() {
   const { session } = useAuth();
   const online = useOnline();
   const [rows, setRows] = useState<InboxRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [safetyFor, setSafetyFor] = useState<InboxRow | null>(null);
   const userId = session!.user.id;
 
   const load = useCallback(async () => {
@@ -44,7 +46,7 @@ export default function Matches() {
   const chats = rows?.filter((r) => r.last_message_at) ?? [];
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <header className="px-5 pb-2 pt-3">
         <h1 className="text-2xl font-extrabold tracking-tight">Matches</h1>
       </header>
@@ -73,10 +75,13 @@ export default function Matches() {
             <h2 className="mb-2 text-sm font-bold uppercase tracking-wide text-brand">New matches</h2>
             <div className="-mx-5 flex gap-4 overflow-x-auto px-5 pb-3">
               {fresh.map((r) => (
-                <Link key={r.conversation_id} to={`/chat/${r.conversation_id}`} className="flex w-20 shrink-0 flex-col items-center gap-1">
+                <div key={r.conversation_id} className="relative w-20 shrink-0">
+                <button onClick={() => setSafetyFor(r)} aria-label={`Options for ${r.other_pet_name}: unmatch, block or report`} className="absolute -right-1 -top-1 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-white text-muted shadow">⋯</button>
+                <Link to={`/chat/${r.conversation_id}`} className="flex flex-col items-center gap-1">
                   <Avatar path={r.other_pet_photo} className="h-20 w-20 border-[3px] border-brand" />
                   <span className="w-full truncate text-center text-sm font-semibold">{r.other_pet_name}</span>
                 </Link>
+                </div>
               ))}
             </div>
           </section>
@@ -87,8 +92,8 @@ export default function Matches() {
             <h2 className="mb-1 text-sm font-bold uppercase tracking-wide text-muted">Messages</h2>
             <ul>
               {chats.map((r) => (
-                <li key={r.conversation_id}>
-                  <Link to={`/chat/${r.conversation_id}`} className="flex items-center gap-3 border-b border-black/5 py-3">
+                <li key={r.conversation_id} className="flex items-center border-b border-black/5">
+                  <Link to={`/chat/${r.conversation_id}`} className="flex min-w-0 flex-1 items-center gap-3 py-3">
                     <Avatar path={r.other_pet_photo} className="h-14 w-14" />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline justify-between gap-2">
@@ -99,12 +104,25 @@ export default function Matches() {
                     </div>
                     {r.unread && <span className="h-3 w-3 shrink-0 rounded-full bg-brand" aria-label="Unread" />}
                   </Link>
+                  <button onClick={() => setSafetyFor(r)} aria-label={`Options for ${r.other_pet_name}: unmatch, block or report`} className="ml-1 flex h-10 w-8 shrink-0 items-center justify-center text-xl text-muted">⋯</button>
                 </li>
               ))}
             </ul>
           </section>
         )}
       </div>
+
+      {safetyFor && (
+        <SafetySheet
+          target={{ ownerId: safetyFor.other_owner_id, ownerName: safetyFor.other_owner_name, petId: safetyFor.other_pet_id, petName: safetyFor.other_pet_name, matchId: safetyFor.match_id }}
+          actions={['unmatch', 'block', 'report']}
+          onClose={() => setSafetyFor(null)}
+          onDone={() => {
+            setSafetyFor(null);
+            void load();
+          }}
+        />
+      )}
     </div>
   );
 }
