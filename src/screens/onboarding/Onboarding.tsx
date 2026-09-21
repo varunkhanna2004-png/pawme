@@ -3,6 +3,7 @@ import { useAuth } from '../../lib/auth';
 import { supabase } from '../../lib/supabase';
 import { errorCopy } from '../../lib/format';
 import { MAKATI_BARANGAYS, OTHER_AREAS } from '../../lib/makati';
+import { inviteUrl, shareLink } from '../../lib/share';
 import { OfflineBanner, Spinner } from '../../components/States';
 import PetWizard from './PetWizard';
 
@@ -207,15 +208,10 @@ function Waitlist({ onRecheck }: { onRecheck: () => void }) {
     setSaved(true);
   }
 
+  const [inviteNote, setInviteNote] = useState<string | null>(null);
   async function invite() {
-    const url = `${window.location.origin}/?ref=${owner?.referral_code ?? ''}`;
-    const text = "I'm on the PAWME waitlist — playdates and friends for our pets. Join so it opens in our area sooner 🐾";
-    try {
-      if (navigator.share) await navigator.share({ title: 'PAWME', text, url });
-      else await navigator.clipboard.writeText(`${text} ${url}`);
-    } catch {
-      /* share sheet dismissed */
-    }
+    const result = await shareLink("I'm on the PAWME waitlist — playdates and friends for our pets. Join so it opens in our area sooner 🐾", inviteUrl(owner?.referral_code));
+    if (result === 'copied') setInviteNote('Invite link copied!');
   }
 
   return (
@@ -238,6 +234,7 @@ function Waitlist({ onRecheck }: { onRecheck: () => void }) {
       )}
 
       <button onClick={() => void invite()} className="mt-4 rounded-full border-2 border-brand py-3 font-bold text-brand active:bg-brand/10">Invite friends — open your area sooner</button>
+      {inviteNote && <p role="status" className="mt-2 text-sm font-semibold text-like">{inviteNote}</p>}
       <button onClick={onRecheck} className="mt-4 text-sm font-semibold text-muted">I live in Makati — check my location again</button>
     </div>
   );

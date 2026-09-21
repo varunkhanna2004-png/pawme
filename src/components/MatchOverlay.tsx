@@ -1,4 +1,6 @@
+import { useMemo, useState } from 'react';
 import { petPhotoUrl, type DeckCard } from '../lib/supabase';
+import ShareCardSheet from './ShareCardSheet';
 
 interface Props {
   myPetName: string;
@@ -9,9 +11,12 @@ interface Props {
 }
 
 // §7. Copy speaks to the owners ("You and Mochi…") — pets don't operate accounts (§3.2).
-// TODO(next step, §11): "Share this match" → the public-safe share card.
 export default function MatchOverlay({ myPetName, myPhoto, card, onChat, onClose }: Props) {
   const theirPhoto = petPhotoUrl(card.photos[0]);
+  const [sharing, setSharing] = useState(false);
+  // Only pet names + photos cross into the share card — never card.owner_name or card.distance_km.
+  const mine = useMemo(() => ({ name: myPetName, photoUrl: myPhoto }), [myPetName, myPhoto]);
+  const theirs = useMemo(() => ({ name: card.name, photoUrl: theirPhoto }), [card.name, theirPhoto]);
   return (
     <div className="absolute inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-gradient-to-b from-brand to-brand-dark px-8 text-center text-white" role="dialog" aria-modal="true" aria-label="It's a Paw-Match">
       <h2 className="animate-pop text-4xl font-extrabold leading-tight tracking-tight drop-shadow">IT'S A<br />PAW-MATCH!</h2>
@@ -25,8 +30,10 @@ export default function MatchOverlay({ myPetName, myPhoto, card, onChat, onClose
       </p>
       <div className="flex w-full flex-col gap-3">
         <button onClick={onChat} className="rounded-full bg-white py-3.5 text-lg font-bold text-brand shadow-lg active:scale-95">Say hi 👋</button>
-        <button onClick={onClose} className="rounded-full border-2 border-white/70 py-3 font-semibold active:scale-95">Keep swiping</button>
+        <button onClick={() => setSharing(true)} className="rounded-full border-2 border-white/70 py-3 font-semibold active:scale-95">Share this match</button>
+        <button onClick={onClose} className="py-2 font-semibold text-white/90 active:scale-95">Keep swiping</button>
       </div>
+      {sharing && <ShareCardSheet mine={mine} theirs={theirs} onClose={() => setSharing(false)} />}
     </div>
   );
 }

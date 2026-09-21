@@ -6,6 +6,7 @@ import { errorCopy, timeShort } from '../lib/format';
 import { usePrivateChannel } from '../lib/realtime';
 import { Spinner, useOnline } from '../components/States';
 import SafetySheet, { type SafetyTarget } from '../components/SafetySheet';
+import ShareCardSheet from '../components/ShareCardSheet';
 
 type Message = Tables<'messages'> & { pending?: boolean; failed?: boolean };
 
@@ -20,6 +21,7 @@ export default function Chat() {
   // Captured when the menu opens: blocking ends the match, which (via Realtime) flips this
   // screen to "not available" — the sheet must survive that to show its confirmation.
   const [safetyTarget, setSafetyTarget] = useState<SafetyTarget | null>(null);
+  const [share, setShare] = useState<{ mine: { name: string; photoUrl?: string }; theirs: { name: string; photoUrl?: string } } | null>(null);
   const userId = session!.user.id;
 
   const [info, setInfo] = useState<InboxRow | null | undefined>(undefined); // undefined = loading, null = not found
@@ -131,6 +133,13 @@ export default function Chat() {
     if (data) upsert(data);
   }
 
+  async function openShare() {
+    if (!info) return;
+    const { data } = await supabase.from('pet_photos').select('storage_path').eq('pet_id', info.my_pet_id).order('position').limit(1).maybeSingle();
+    // Pet names + photos only: the share card never receives an owner name or a location.
+    setShare({ mine: { name: info.my_pet_name, photoUrl: petPhotoUrl(data?.storage_path) }, theirs: { name: info.other_pet_name, photoUrl: petPhotoUrl(info.other_pet_photo) } });
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
     const text = draft;
@@ -201,6 +210,7 @@ export default function Chat() {
         {messages.length === 0 && (
           <div className="flex flex-col items-center gap-3 pt-8 text-center">
             <p className="text-muted">You and {info.my_pet_name} matched with {info.other_owner_name ? `${info.other_owner_name} and ` : ''}{info.other_pet_name} 🎉<br />Break the ice:</p>
+            <button onClick={() => void openShare()} className="rounded-full border-2 border-brand px-5 py-2 text-sm font-bold text-brand active:bg-brand/10">Share this match 🎉</button>
             {openers.map((o) => (
               <button key={o} onClick={() => void send(o)} className="w-full rounded-2xl border border-brand/30 bg-white px-4 py-2.5 text-left text-sm font-medium text-ink active:bg-brand/10">{o}</button>
             ))}
@@ -227,6 +237,8 @@ export default function Chat() {
         {otherTyping && <p className="mt-2 text-sm italic text-muted" role="status">{info.other_owner_name ?? 'They'} is typing…</p>}
         <div ref={bottom} />
       </div>
+
+      {share && <ShareCardSheet mine={share.mine} theirs={share.theirs} onClose={() => setShare(null)} />}
 
       <form onSubmit={onSubmit} className="flex items-end gap-2 border-t border-black/5 bg-white px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
         <input value={draft} onChange={(e) => onDraftChange(e.target.value)} maxLength={2000} placeholder={online ? 'Message…' : "You're offline"} aria-label="Message" className="min-w-0 flex-1 rounded-full bg-cream px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand/40" />

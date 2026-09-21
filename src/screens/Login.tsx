@@ -48,6 +48,7 @@ export default function Login() {
 
         {step === 'welcome' ? (
           <div className="flex flex-col gap-4">
+            {localStorage.getItem('pawme:ref') && <p data-testid="invited" className="rounded-2xl bg-brand/10 px-4 py-3 text-sm font-semibold text-brand-dark">🎉 A friend invited you and your pet to PAWME.</p>}
             <ul className="flex flex-col gap-3 text-[15px]">
               <li className="flex gap-3"><span aria-hidden>🐶</span><span><b>Meet pets nearby.</b> Everyone you see lives close enough to actually meet up.</span></li>
               <li className="flex gap-3"><span aria-hidden>❤️</span><span><b>Match, then chat.</b> You only talk to owners who liked your pet back.</span></li>

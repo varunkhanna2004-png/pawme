@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { petPhotoUrl, supabase, type DeckCard, type Enums } from '../lib/supabase';
 import { errorCopy } from '../lib/format';
+import { inviteUrl, shareLink } from '../lib/share';
 import SwipeDeck, { type SwipeDeckHandle } from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
 import { Toast, useOnline } from '../components/States';
@@ -141,18 +142,11 @@ export default function Discover() {
     setToast(outcome === 'blocked' ? 'Blocked. You won\'t see each other again.' : 'Thanks — report sent to our moderators.');
   }
 
+  // §5: the empty deck is the liquidity release valve — turn it into an invite.
   async function invite() {
-    const url = `${window.location.origin}/?ref=${owner?.referral_code ?? ''}`;
-    const text = 'Join me on PAWME — playdates and friends for our pets, right here in Makati 🐾';
-    try {
-      if (navigator.share) await navigator.share({ title: 'PAWME', text, url });
-      else {
-        await navigator.clipboard.writeText(`${text} ${url}`);
-        setToast('Invite link copied!');
-      }
-    } catch {
-      /* share sheet dismissed */
-    }
+    const result = await shareLink("Join me on PAWME — playdates and friends for our pets 🐾", inviteUrl(owner?.referral_code));
+    if (result === 'copied') setToast('Invite link copied — paste it to a friend!');
+    else if (result === 'unavailable') setToast(inviteUrl(owner?.referral_code));
   }
 
   const top = cards[0];
