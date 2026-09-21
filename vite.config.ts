@@ -9,7 +9,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon-192.png', 'icon-512.png'],
+      includeAssets: ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'],
       manifest: {
         name: 'PAWME',
         short_name: 'PAWME',
@@ -18,10 +18,16 @@ export default defineConfig({
         background_color: '#fff8f1',
         display: 'standalone',
         orientation: 'portrait',
+        id: '/',
         start_url: '/',
+        scope: '/',
+        lang: 'en',
+        categories: ['social', 'lifestyle'],
         icons: [
           { src: '/icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          // separate maskable icon: Android crops it, so the paw sits inside the safe zone
+          { src: '/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {

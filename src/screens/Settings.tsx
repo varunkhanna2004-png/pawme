@@ -5,6 +5,7 @@ import { petPhotoUrl, supabase } from '../lib/supabase';
 import type { Database } from '../types/database.types';
 import { errorCopy, timeShort } from '../lib/format';
 import { downloadBlob } from '../lib/share';
+import { useInstall } from '../lib/install';
 import { Spinner } from '../components/States';
 
 type BlockRow = Database['public']['Functions']['get_my_blocks']['Returns'][number];
@@ -65,6 +66,7 @@ export default function Settings() {
           <Toggle label="Show me in Discover" hint="Turn off to pause: nobody new sees your pet; your matches and chats stay" checked={owner.discoverable} onChange={(v) => void savePref({ discoverable: v })} />
         </Section>
 
+        <InstallApp />
         <BlockedOwners />
         <ReportHistory />
         <YourData />
@@ -124,6 +126,31 @@ function EmailPrefs({ onSave }: { onSave: (patch: Database['public']['Tables']['
       </form>
       {note && <p role="status" className="px-4 pb-3 text-xs font-semibold text-muted">{note}</p>}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- install (PWA)
+function InstallApp() {
+  const install = useInstall();
+  const [note, setNote] = useState<string | null>(null);
+  if (install.installed) return null; // already running from the home screen
+  return (
+    <Section title="Get the app">
+      <div className="px-4 py-3">
+        <div className="font-semibold">Add PAWME to your home screen</div>
+        {install.canPrompt ? (
+          <>
+            <p className="text-xs text-muted">Opens full-screen like any other app, with no app store needed.</p>
+            <button onClick={async () => setNote((await install.prompt()) === 'accepted' ? 'Installed — look for PAWME on your home screen.' : null)} className="mt-2 rounded-full bg-brand px-5 py-2 text-sm font-bold text-white">Install PAWME</button>
+          </>
+        ) : install.ios ? (
+          <p className="text-xs text-muted">In Safari, tap the <b>Share</b> button (the square with an arrow), then <b>Add to Home Screen</b>.</p>
+        ) : (
+          <p className="text-xs text-muted">Open your browser's menu (⋮) and choose <b>Install app</b> or <b>Add to Home screen</b>.</p>
+        )}
+        {note && <p role="status" className="mt-2 text-xs font-semibold text-like">{note}</p>}
+      </div>
+    </Section>
   );
 }
 

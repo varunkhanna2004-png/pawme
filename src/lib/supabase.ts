@@ -19,6 +19,8 @@ if (import.meta.env.DEV && url.includes(PRODUCTION_REF)) {
 }
 
 export const projectRef = new URL(url).hostname.split('.')[0];
+/** False for any build pointed at a non-production project (local dev, or a Vercel test deploy against pawme-dev). */
+export const isProductionProject = projectRef === PRODUCTION_REF;
 
 export const supabase = createClient<Database>(url, anonKey, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
