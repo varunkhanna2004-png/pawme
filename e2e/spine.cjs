@@ -12,6 +12,7 @@ const check = (name, ok, extra = '') => { checks.push(ok); log(ok ? 'PASS' : 'FA
 
 async function signIn(page, local, shot) {
   await page.goto(URL);
+  await page.click('text=Get started');
   await page.fill('#phone', local);
   if (shot) await page.screenshot({ path: `${OUT}/${shot}` });
   await page.click('text=Send code');

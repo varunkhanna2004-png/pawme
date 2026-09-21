@@ -11,6 +11,7 @@ const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
 
 async function signIn(page, local, waitFor = 'nav >> text=Discover') {
   await page.goto(URL);
+  await page.click('text=Get started');
   await page.fill('#phone', local);
   await page.click('text=Send code');
   await page.fill('#otp', '123456');

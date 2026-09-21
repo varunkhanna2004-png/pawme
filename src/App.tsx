@@ -8,9 +8,10 @@ import Discover from './screens/Discover';
 import Matches from './screens/Matches';
 import Chat from './screens/Chat';
 import Moderation from './screens/Moderation';
+import Onboarding from './screens/onboarding/Onboarding';
 
 export default function App() {
-  const { session, owner, pet, profileLoading, profileError, reloadProfile, signOut } = useAuth();
+  const { session, owner, pet, petReady, profileLoading, profileError, reloadProfile, signOut } = useAuth();
 
   if (session === undefined || (session && profileLoading && !owner)) {
     return <FullScreenMessage><Spinner /></FullScreenMessage>;
@@ -37,17 +38,9 @@ export default function App() {
     );
   }
 
-  // The spine assumes an admitted owner with a pet. Screens 3 (location / waitlist)
-  // and 4 (add pet) come next; until then, say so plainly instead of breaking.
-  if (!owner?.cluster_id || !pet) {
-    return (
-      <FullScreenMessage
-        title="Onboarding isn't built yet"
-        body={`This account has ${!owner?.cluster_id ? 'no cluster' : 'no pet'} yet. For now, sign in with a seeded test number (0917 000 0001, 0002 or 0003).`}
-        action={{ label: 'Sign out', onClick: () => void signOut() }}
-      />
-    );
-  }
+  // New (or half-finished) accounts go through onboarding until the owner has a
+  // name + 18+ confirmation, a cluster, and a pet with a photo and tags.
+  if (!owner?.display_name || !owner.adult_confirmed_at || !owner.cluster_id || !pet || !petReady) return <Onboarding />;
 
   return (
     <div className="mx-auto flex h-full max-w-md flex-col bg-cream">

@@ -11,6 +11,10 @@ interface AuthState {
   owner: Owner | null;
   /** V1 screens handle one pet per owner; the schema allows more. */
   pet: Pet | null;
+  /** The pet can appear in Discover: it has at least one photo and two tags. */
+  petReady: boolean;
+  /** The owner's location was outside every cluster; they are on the waitlist. */
+  waitlisted: boolean;
   profileLoading: boolean;
   profileError: string | null;
   reloadProfile: () => Promise<void>;
@@ -23,6 +27,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const [owner, setOwner] = useState<Owner | null>(null);
   const [pet, setPet] = useState<Pet | null>(null);
+  const [petReady, setPetReady] = useState(false);
+  const [waitlisted, setWaitlisted] = useState(false);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
 
@@ -38,6 +44,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!userId) {
       setOwner(null);
       setPet(null);
+      setPetReady(false);
+      setWaitlisted(false);
       return;
     }
     setProfileLoading(true);
@@ -49,6 +57,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (ownerRes.error || petRes.error) setProfileError((ownerRes.error ?? petRes.error)!.message);
     setOwner(ownerRes.data ?? null);
     setPet(petRes.data ?? null);
+    const petId = petRes.data?.id;
+    const [photos, tags, waitlist] = await Promise.all([
+      petId ? supabase.from('pet_photos').select('id', { count: 'exact', head: true }).eq('pet_id', petId) : null,
+      petId ? supabase.from('pet_tags').select('tag', { count: 'exact', head: true }).eq('pet_id', petId) : null,
+      ownerRes.data?.cluster_id ? null : supabase.from('waitlist').select('owner_id', { count: 'exact', head: true }).eq('owner_id', userId),
+    ]);
+    setPetReady((photos?.count ?? 0) >= 1 && (tags?.count ?? 0) >= 2);
+    setWaitlisted((waitlist?.count ?? 0) > 0);
     setProfileLoading(false);
   }, [userId]);
 
@@ -57,8 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [reloadProfile]);
 
   const value = useMemo<AuthState>(
-    () => ({ session, owner, pet, profileLoading, profileError, reloadProfile, signOut: async () => void (await supabase.auth.signOut()) }),
-    [session, owner, pet, profileLoading, profileError, reloadProfile],
+    () => ({ session, owner, pet, petReady, waitlisted, profileLoading, profileError, reloadProfile, signOut: async () => void (await supabase.auth.signOut()) }),
+    [session, owner, pet, petReady, waitlisted, profileLoading, profileError, reloadProfile],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

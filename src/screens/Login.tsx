@@ -3,11 +3,10 @@ import { supabase } from '../lib/supabase';
 import { normalizePhMobile } from '../lib/format';
 import { OfflineBanner, Spinner } from '../components/States';
 
-// Rough sign-in for the spine (screens 1–2 get their polish later). The flow is
-// the real one: Supabase phone OTP. In dev the test numbers accept 123456; going
+// Screens 1–2: welcome / value prop → phone → OTP. The flow is the real one: Supabase phone OTP. In dev the test numbers accept 123456; going
 // live is an SMS-provider switch in the dashboard, not a code change.
 export default function Login() {
-  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [step, setStep] = useState<'welcome' | 'phone' | 'otp'>('welcome');
   const [phoneInput, setPhoneInput] = useState('');
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
@@ -47,7 +46,17 @@ export default function Login() {
           <p className="mt-2 text-lg text-muted">Playdates and friends for your pet, right in your neighborhood.</p>
         </div>
 
-        {step === 'phone' ? (
+        {step === 'welcome' ? (
+          <div className="flex flex-col gap-4">
+            <ul className="flex flex-col gap-3 text-[15px]">
+              <li className="flex gap-3"><span aria-hidden>🐶</span><span><b>Meet pets nearby.</b> Everyone you see lives close enough to actually meet up.</span></li>
+              <li className="flex gap-3"><span aria-hidden>❤️</span><span><b>Match, then chat.</b> You only talk to owners who liked your pet back.</span></li>
+              <li className="flex gap-3"><span aria-hidden>🛡️</span><span><b>Safe by design.</b> Verified phone numbers, approximate distance only, report and block everywhere.</span></li>
+            </ul>
+            <button onClick={() => setStep('phone')} className="rounded-full bg-brand py-3.5 text-lg font-bold text-white active:bg-brand-dark">Get started</button>
+            <p className="text-center text-xs text-muted">Now in Makati · more areas soon</p>
+          </div>
+        ) : step === 'phone' ? (
           <form onSubmit={sendCode} className="flex flex-col gap-3">
             <label className="text-sm font-semibold" htmlFor="phone">Your mobile number</label>
             <div className="flex items-center gap-2 rounded-2xl border border-black/10 bg-white px-4 py-3 focus-within:border-brand">

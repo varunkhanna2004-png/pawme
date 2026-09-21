@@ -3,42 +3,17 @@
 //   npm run seed:dev          create/refresh seed data in the dev project
 //   npm run seed:dev:reset    delete every seed account first, then seed
 //
-// Everything this script creates is flagged is_seed = true. It can only ever
-// touch the dev project:
-//   1. it must be run with --dev;
-//   2. SUPABASE_URL must be on the allowlist below and must NOT be production;
-//   3. the service key's own `ref` claim must match the URL;
-//   4. the database itself refuses is_seed rows unless
-//      ranking_config.allow_seed = true, which is set by hand in dev only —
-//      this script never flips it.
-// It reads SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY from process.env
-// (.env.seed.local, gitignored). The service key is never used by the client.
+// Everything this script creates is flagged is_seed = true. It can only ever touch
+// the dev project: see scripts/lib/dev-guard.mjs (needs --dev, allowlisted project,
+// never production, key must match the URL). On top of that, the database itself
+// refuses is_seed rows unless ranking_config.allow_seed = true, which is set by
+// hand in dev only — this script never flips it.
 
-import { createClient } from '@supabase/supabase-js';
 import sharp from 'sharp';
-
-const PRODUCTION_REF = 'tzifbmuuczogckruptap';
-const ALLOWED_REFS = ['ooigdeefqwgzkpujvexu']; // pawme-dev
+import { allUsers, connectDev, deleteUserCompletely, die } from './lib/dev-guard.mjs';
 
 const args = new Set(process.argv.slice(2));
-const die = (msg) => { console.error(`\n✋ seed refused: ${msg}\n`); process.exit(1); };
-
-// ------------------------------------------------------------------ guards
-if (!args.has('--dev')) die('run with --dev (npm run seed:dev). This script is for the dev project only.');
-if (process.env.NODE_ENV === 'production') die('NODE_ENV is production.');
-const url = process.env.SUPABASE_URL;
-const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !key) die('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set (see .env.seed.local).');
-const ref = new URL(url).hostname.split('.')[0];
-if (ref === PRODUCTION_REF || url.includes(PRODUCTION_REF)) die('SUPABASE_URL is the PRODUCTION project. Production is never seeded.');
-if (!ALLOWED_REFS.includes(ref)) die(`project "${ref}" is not on the dev allowlist in scripts/seed.mjs.`);
-if (key.startsWith('eyJ')) {
-  const claims = JSON.parse(Buffer.from(key.split('.')[1], 'base64url').toString());
-  if (claims.ref !== ref) die(`the service key belongs to project "${claims.ref}", not "${ref}".`);
-}
-
-const db = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
-const must = async (promise, what) => { const { data, error } = await promise; if (error) die(`${what}: ${error.message}`); return data; };
+const { db, ref, must } = connectDev(args);
 
 const cfg = await must(db.from('ranking_config').select('cluster_id, allow_seed, grid_m').eq('cluster_id', 'makati').single(), 'read ranking_config');
 if (!cfg.allow_seed) die(`ranking_config.allow_seed is false in "${ref}".
@@ -61,11 +36,12 @@ const AREAS = {
   guadalupe: [14.5640, 121.0430], olympia: [14.5700, 121.0230], sanlorenzo: [14.5490, 121.0200], ayala: [14.5566, 121.0234],
 };
 
-// The four Supabase TEST phone numbers (OTP 123456) — accounts you sign in as.
+// Supabase TEST phone numbers (OTP 123456) — accounts you sign in as.
+// 639170000003 is deliberately NOT seeded: it stays free so onboarding can be
+// tested as a brand-new user (npm run dev:free-number frees it again).
 const TEST_ACCOUNTS = [
   { phone: '639170000001', owner: 'Ana', area: 'ayala', pet: { name: 'Mochi', species: 'dog', breed: 'Shih Tzu', sex: 'female', born: '2023-02-01', size: 'small', intents: ['playdate', 'friendship'], tags: ['playful', 'friendly', 'loves_fetch'] } },
   { phone: '639170000002', owner: 'Ben', area: 'rockwell', pet: { name: 'Bruno', species: 'dog', breed: 'Aspin', mixed: true, sex: 'male', born: '2022-06-01', size: 'small', intents: ['playdate', 'walking_buddy'], tags: ['playful', 'energetic', 'friendly', 'loves_walks'] } },
-  { phone: '639170000003', owner: 'Cara', area: 'legazpi', pet: { name: 'Miming', species: 'cat', breed: 'Puspin', mixed: true, sex: 'female', born: '2021-09-01', size: 'small', intents: ['friendship'], tags: ['calm', 'cuddly', 'curious'] } },
   { phone: '639170000009', owner: 'Mod (PAWME)', area: 'ayala', role: 'moderator' },
 ];
 
@@ -94,6 +70,7 @@ const SEED_ACCOUNTS = [
   ['Lia', 'belair', P('Oreo', 'cat', 'British Shorthair', 'male', '2021-04-01', 'medium', ['friendship'], ['calm', 'independent', 'good_with_cats'])],
   ['Marco', 'urdaneta', P('Mango', 'cat', 'Puspin', 'male', '2024-07-01', 'small', ['playdate', 'friendship'], ['playful', 'energetic', 'good_with_cats'], true)],
   ['Yna', 'sanantonio', P('Ube', 'cat', 'Ragdoll', 'female', '2022-12-01', 'medium', ['friendship'], ['cuddly', 'gentle', 'calm', 'good_with_kids'])],
+  ['Cara', 'legazpi', P('Miming', 'cat', 'Puspin', 'female', '2021-09-01', 'small', ['friendship'], ['calm', 'cuddly', 'curious'], true)],
 ].map(([owner, area, pet], i) => ({ phone: `63999000${String(i + 1).padStart(4, '0')}`, owner, area, pet }));
 
 // Seed pets that have ALREADY liked a test account's pet, so a right-swipe on
@@ -132,25 +109,9 @@ function petSvg(pet, idx, variant) {
 const petJpeg = (pet, idx, variant) => sharp(Buffer.from(petSvg(pet, idx, variant))).jpeg({ quality: 82, mozjpeg: true }).toBuffer();
 
 // ------------------------------------------------------------------ helpers
-async function allUsers() {
-  const users = [];
-  for (let page = 1; ; page++) {
-    const data = await must(db.auth.admin.listUsers({ page, perPage: 200 }), 'list users');
-    users.push(...data.users);
-    if (data.users.length < 200) return users;
-  }
-}
-
 async function reset() {
   const seedOwners = await must(db.from('owners').select('id').eq('is_seed', true), 'list seed owners');
-  for (const { id } of seedOwners) {
-    const files = [];
-    for (const folder of (await must(db.storage.from('pet-photos').list(id), 'list photos')) ?? []) {
-      for (const f of (await must(db.storage.from('pet-photos').list(`${id}/${folder.name}`), 'list photos')) ?? []) files.push(`${id}/${folder.name}/${f.name}`);
-    }
-    if (files.length) await must(db.storage.from('pet-photos').remove(files), 'remove photos');
-    await must(db.auth.admin.deleteUser(id), 'delete seed user'); // cascades owners → pets → everything
-  }
+  for (const { id } of seedOwners) await deleteUserCompletely(db, must, id);
   console.log(`reset: removed ${seedOwners.length} seed accounts`);
 }
 
@@ -189,7 +150,7 @@ async function upsertAccount(acct, idx, existingByPhone) {
 console.log(`seeding DEV project ${ref} …`);
 if (args.has('--reset')) await reset();
 
-const existingByPhone = new Map((await allUsers()).filter((u) => u.phone).map((u) => [u.phone, u]));
+const existingByPhone = new Map((await allUsers(db, must)).filter((u) => u.phone).map((u) => [u.phone, u]));
 const pets = new Map();
 const accounts = [...TEST_ACCOUNTS, ...SEED_ACCOUNTS];
 for (const [i, acct] of accounts.entries()) {
@@ -205,4 +166,4 @@ for (const [from, to, action] of PRE_LIKES) {
 
 const count = await must(db.from('pets').select('species', { count: 'exact', head: false }).eq('is_seed', true), 'count');
 console.log(`\ndone: ${accounts.length} seed accounts, ${count.length} seed pets (${count.filter((p) => p.species === 'dog').length} dogs, ${count.filter((p) => p.species === 'cat').length} cats), ${PRE_LIKES.length} pre-likes.`);
-console.log('sign in with 639170000001 / 2 / 3 (pets) or 9 (moderator), OTP 123456.');
+console.log('sign in with 0917 000 0001 / 0002 (pets) or 0009 (moderator), OTP 123456. 0917 000 0003 is left free for onboarding.');
