@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { petPhotoUrl, supabase, type InboxRow, type Tables } from '../lib/supabase';
 import { errorCopy, timeShort } from '../lib/format';
 import { usePrivateChannel } from '../lib/realtime';
+import { useInbox } from '../lib/inbox';
 import { Spinner, useOnline } from '../components/States';
 import SafetySheet, { type SafetyTarget } from '../components/SafetySheet';
 import ShareCardSheet from '../components/ShareCardSheet';
@@ -18,6 +19,7 @@ export default function Chat() {
   const { session } = useAuth();
   const online = useOnline();
   const navigate = useNavigate();
+  const reloadInbox = useInbox().reload;
   // Captured when the menu opens: blocking ends the match, which (via Realtime) flips this
   // screen to "not available" — the sheet must survive that to show its confirmation.
   const [safetyTarget, setSafetyTarget] = useState<SafetyTarget | null>(null);
@@ -47,8 +49,8 @@ export default function Chat() {
   const markRead = useCallback(() => {
     if (!conversationId || document.visibilityState !== 'visible') return;
     // supabase-js builders are lazy: nothing is sent until they are awaited / .then()'d.
-    void supabase.rpc('mark_conversation_read', { p_conversation_id: conversationId }).then(() => undefined);
-  }, [conversationId]);
+    void supabase.rpc('mark_conversation_read', { p_conversation_id: conversationId }).then(() => void reloadInbox());
+  }, [conversationId, reloadInbox]);
 
   const load = useCallback(async () => {
     if (!conversationId) return;

@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../../lib/auth';
-import { petPhotoUrl, supabase, type Enums } from '../../lib/supabase';
+import { supabase, type Enums } from '../../lib/supabase';
 import { errorCopy, intentLabel, tagLabel } from '../../lib/format';
-import { PhotoError, processPhoto } from '../../lib/image';
+import PhotoPicker, { MAX_PHOTOS } from '../../components/PhotoPicker';
 import { CAT_BREEDS, DOG_BREEDS } from '../../lib/makati';
 import { ErrorNote, PrimaryButton, StepShell } from './Onboarding';
 
@@ -10,7 +10,6 @@ type Species = Enums<'pet_species'>;
 type Tag = Enums<'pet_tag'>;
 type Intent = Enums<'pet_intent'>;
 
-const MAX_PHOTOS = 5;
 const TAGS: Tag[] = ['playful', 'energetic', 'calm', 'couch_potato', 'friendly', 'shy', 'gentle', 'curious', 'cuddly', 'independent', 'vocal', 'loves_walks', 'loves_fetch', 'good_with_dogs', 'good_with_cats', 'good_with_kids'];
 const INTENTS: { value: Intent; hint: string }[] = [
   { value: 'playdate', hint: 'Meet up so the pets can play' },
@@ -72,40 +71,7 @@ export default function PetWizard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ------------------------------------------------------------ photos
-  const fileInput = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(0);
-  const previews = useRef(new Map<string, string>()); // path → local object URL (instant preview)
-
-  async function addPhotos(files: FileList | null) {
-    if (!files?.length) return;
-    setError(null);
-    const room = MAX_PHOTOS - draft.photos.length;
-    const chosen = Array.from(files).slice(0, room);
-    if (files.length > room) setError(`You can add up to ${MAX_PHOTOS} photos.`);
-    for (const file of chosen) {
-      setUploading((n) => n + 1);
-      try {
-        const blob = await processPhoto(file); // strips EXIF (GPS) + compresses
-        const path = `${userId}/${draft.petId}/${crypto.randomUUID()}.jpg`;
-        const { error } = await supabase.storage.from('pet-photos').upload(path, blob, { contentType: 'image/jpeg', cacheControl: '31536000' });
-        if (error) throw new Error(error.message);
-        previews.current.set(path, URL.createObjectURL(blob));
-        setDraft((d) => ({ ...d, photos: [...d.photos, path].slice(0, MAX_PHOTOS) }));
-      } catch (e) {
-        setError(e instanceof PhotoError ? e.message : errorCopy(e instanceof Error ? e.message : undefined));
-      } finally {
-        setUploading((n) => n - 1);
-      }
-    }
-    if (fileInput.current) fileInput.current.value = '';
-  }
-
-  function removePhoto(path: string) {
-    set({ photos: draft.photos.filter((p) => p !== path) });
-    void supabase.storage.from('pet-photos').remove([path]).then(() => undefined);
-  }
-  const makeMain = (path: string) => set({ photos: [path, ...draft.photos.filter((p) => p !== path)] });
+  const [uploading, setUploading] = useState(false);
 
   // ------------------------------------------------------------ finish
   const birthDate = useMemo(() => {
@@ -148,7 +114,7 @@ export default function PetWizard() {
 
   // ------------------------------------------------------------ render
   const basicsOk = draft.name.trim().length > 0 && !!draft.species && !!draft.sex && !!draft.size && draft.years !== '';
-  const photosOk = draft.photos.length >= 1 && uploading === 0;
+  const photosOk = draft.photos.length >= 1 && !uploading;
   const personalityOk = draft.tags.length >= 2 && draft.tags.length <= 4 && draft.intents.length >= 1;
   const petName = draft.name.trim() || 'your pet';
   const toggle = <T,>(list: T[], item: T, max: number) => (list.includes(item) ? list.filter((x) => x !== item) : list.length < max ? [...list, item] : list);
@@ -200,24 +166,14 @@ export default function PetWizard() {
         subtitle={`Add 1 to ${MAX_PHOTOS} photos. Clear, well-lit photos of just ${petName} get the most likes.`}
         footer={<><PrimaryButton disabled={!photosOk} onClick={() => set({ sub: 2 })}>{uploading ? 'Uploading…' : 'Continue'}</PrimaryButton><Back to={0} /></>}
       >
-        <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={(e) => void addPhotos(e.target.files)} data-testid="photo-input" />
-        <div className="grid grid-cols-3 gap-2.5">
-          {draft.photos.map((path, i) => (
-            <div key={path} className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-black/5">
-              <img src={previews.current.get(path) ?? petPhotoUrl(path)} alt={`Photo ${i + 1}`} className="h-full w-full object-cover" />
-              {i === 0 ? <span className="absolute bottom-1.5 left-1.5 rounded-full bg-brand px-2 py-0.5 text-[10px] font-bold text-white">Main</span> : <button type="button" onClick={() => makeMain(path)} className="absolute bottom-1.5 left-1.5 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold text-white">Make main</button>}
-              <button type="button" onClick={() => removePhoto(path)} aria-label={`Remove photo ${i + 1}`} className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white">✕</button>
-            </div>
-          ))}
-          {Array.from({ length: uploading }, (_, i) => <div key={`u${i}`} className="skeleton aspect-[4/5] rounded-2xl" aria-label="Uploading photo" />)}
-          {draft.photos.length + uploading < MAX_PHOTOS && (
-            <button type="button" onClick={() => fileInput.current?.click()} className="flex aspect-[4/5] flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-brand/50 bg-white text-brand active:bg-brand/10">
-              <span className="text-3xl leading-none">＋</span>
-              <span className="text-xs font-bold">Add photo</span>
-            </button>
-          )}
-        </div>
-        <p className="mt-3 text-xs text-muted">🔒 Photos are resized and any location data your camera saved inside them is removed before upload.</p>
+        <PhotoPicker
+          userId={userId}
+          petId={draft.petId}
+          paths={draft.photos}
+          onChange={(photos) => set({ photos })}
+          onRemove={(path) => void supabase.storage.from('pet-photos').remove([path]).then(() => undefined)}
+          onBusyChange={setUploading}
+        />
         <ErrorNote text={error} />
       </StepShell>
     );

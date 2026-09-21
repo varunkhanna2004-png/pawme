@@ -1,42 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '../lib/auth';
-import { petPhotoUrl, supabase, type InboxRow } from '../lib/supabase';
+import { petPhotoUrl, type InboxRow } from '../lib/supabase';
+import { useInbox } from '../lib/inbox';
 import { errorCopy, timeShort } from '../lib/format';
-import { usePrivateChannel } from '../lib/realtime';
 import { Spinner, useOnline } from '../components/States';
 import SafetySheet from '../components/SafetySheet';
 
 export default function Matches() {
-  const { session } = useAuth();
   const online = useOnline();
-  const [rows, setRows] = useState<InboxRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { rows, error: loadError, reload: load } = useInbox(); // shared, live (lib/inbox.tsx)
+  const error = loadError ? errorCopy(loadError) : null;
   const [safetyFor, setSafetyFor] = useState<InboxRow | null>(null);
-  const userId = session!.user.id;
-
-  const load = useCallback(async () => {
-    const { data, error } = await supabase.rpc('get_inbox');
-    if (error) return setError(errorCopy(error.message));
-    setError(null);
-    setRows(data);
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  // New matches and new messages arrive live on the owner's private inbox
-  // channel; table RLS means it only ever carries this owner's rows.
-  usePrivateChannel(
-    `inbox:${userId}`,
-    (ch) =>
-      ch
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, () => void load())
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversations' }, () => void load()),
-    [load],
-    () => void load(),
-  );
 
   useEffect(() => {
     if (online) void load();

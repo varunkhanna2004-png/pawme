@@ -283,6 +283,39 @@ await db.exec(`delete from auth.users where id='${A}'`);
 ok('deleting the auth user cascades all owner data', (await q(`select (select count(*) from public.pets where owner_id=$1)+(select count(*) from public.messages where sender_id=$1)+(select count(*) from public.matches where $1 in (owner_a_id,owner_b_id))+(select count(*) from public.likes where from_owner_id=$1) n`, [A]))[0].n == 0);
 ok('report survives reporter deletion (evidence kept)', (await q(`select count(*)::int n from public.reports`))[0].n === 1);
 
+// ---------- settings functions ----------
+{
+  const [S1, S2] = await Promise.all(['+639175550001', '+639175550002'].map(mk));
+  await enter(S1, 14.5566, 121.0234); await enter(S2, 14.5650, 121.0365);
+  await asUser(S1, () => q(`update public.owners set display_name='Sam' where id=$1`, [S1]));
+  await asUser(S2, () => q(`update public.owners set display_name='Tess' where id=$1`, [S2]));
+  const p1 = await mkPet(S1, 'Pepper'), p2 = await mkPet(S2, 'Tofu');
+  const setPhotos = (uid, pet, paths) => asUser(uid, async () => (await q(`select public.set_pet_photos($1,$2::text[]) r`, [pet, `{${paths.join(',')}}`]))[0].r);
+  const a = `${S1}/${p1}/a.jpg`, b = `${S1}/${p1}/b.jpg`, first = `${S1}/${p1}/1.jpg`;
+  const removed = await setPhotos(S1, p1, [b, a, b]);
+  const rows = await q(`select storage_path, position from public.pet_photos where pet_id=$1 order by position`, [p1]);
+  ok('set_pet_photos: replaces atomically, keeps order, de-duplicates, returns dropped paths', rows.map((r) => r.storage_path).join() === [b, a].join() && rows.map((r) => r.position).join() === '1,2' && String(removed) === first, JSON.stringify(removed));
+  await denied('set_pet_photos: zero photos refused (a pet must stay visible)', () => setPhotos(S1, p1, []), 'PHOTOS_MUST_BE_1_TO_5');
+  await denied('set_pet_photos: more than five refused', () => setPhotos(S1, p1, [1, 2, 3, 4, 5, 6].map((n) => `${S1}/${p1}/${n}.jpg`)), 'PHOTOS_MUST_BE_1_TO_5');
+  await denied("set_pet_photos: cannot point at someone else's folder", () => setPhotos(S1, p1, [`${S2}/${p2}/1.jpg`]), 'PHOTO_PATH_NOT_YOURS');
+  await denied("set_pet_photos: cannot edit someone else's pet", () => setPhotos(S1, p2, [a]), 'NOT_YOUR_PET');
+  ok('set_pet_photos: a refused call changed nothing', (await q(`select count(*)::int n from public.pet_photos where pet_id=$1`, [p1]))[0].n === 2);
+  await denied('anon cannot call set_pet_photos', () => asRole('anon', null, () => q(`select public.set_pet_photos($1,'{x}')`, [p1])), 'permission denied');
+
+  await asUser(S1, () => q(`insert into public.blocks (blocker_id, blocked_id) values ($1,$2)`, [S1, S2]));
+  await asUser(S1, () => q(`insert into public.reports (target_owner_id, target_pet_id, reason, details) values ($1,$2,'spam','ads')`, [S2, p2]));
+  const myBlocks = await asUser(S1, () => q(`select * from public.get_my_blocks()`));
+  ok('get_my_blocks: first name + pet name only', myBlocks.length === 1 && myBlocks[0].owner_name === 'Tess' && myBlocks[0].pet_name === 'Tofu' && !Object.keys(myBlocks[0]).some((k) => /phone|email|lat$|lng$|^loc_/.test(k)), Object.keys(myBlocks[0]).join(','));
+  ok('get_my_blocks: the blocked person sees nothing', (await asUser(S2, () => q(`select * from public.get_my_blocks()`))).length === 0);
+  const myReports = await asUser(S1, () => q(`select * from public.get_my_reports()`));
+  ok('get_my_reports: reason, status, names — no moderator fields', myReports.length === 1 && myReports[0].status === 'open' && myReports[0].owner_name === 'Tess' && !Object.keys(myReports[0]).some((k) => /resolved|snapshot|reporter/.test(k)), Object.keys(myReports[0]).join(','));
+  ok('get_my_reports: the reported person sees nothing', (await asUser(S2, () => q(`select * from public.get_my_reports()`))).length === 0);
+  await asUser(S1, () => q(`delete from public.blocks where blocker_id=$1 and blocked_id=$2`, [S1, S2]));
+  ok('unblock: the pair can see each other in the deck again', (await deck(S1, p1)).some((r) => r.pet_id === p2) && (await deck(S2, p2)).some((r) => r.pet_id === p1));
+  await denied("unblock: cannot remove someone else's block", async () => { await asUser(S1, () => q(`insert into public.blocks (blocker_id, blocked_id) values ($1,$2)`, [S1, S2])); const r = await asUser(S2, () => db.query(`delete from public.blocks where blocker_id=$1`, [S1])); if (r.affectedRows === 0) throw new Error('0 rows'); return r; }, '0 rows');
+  await db.exec(`delete from public.reports where reporter_id='${S1}'; delete from auth.users where id in ('${S1}','${S2}')`);
+}
+
 // ---------- banned phones: suspension survives delete + re-signup ----------
 ok('earlier suspend→unsuspend of B left no ban behind', (await q(`select count(*)::int n from public.banned_phones`))[0].n === 0);
 await asUser(C, () => q(`insert into public.reports (target_owner_id, reason) values ($1,'harassment')`, [B]));

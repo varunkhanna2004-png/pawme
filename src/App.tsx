@@ -9,6 +9,9 @@ import Matches from './screens/Matches';
 import Chat from './screens/Chat';
 import Moderation from './screens/Moderation';
 import Onboarding from './screens/onboarding/Onboarding';
+import Settings from './screens/Settings';
+import PetEditor from './screens/PetEditor';
+import { InboxProvider } from './lib/inbox';
 
 export default function App() {
   const { session, owner, pet, petReady, profileLoading, profileError, reloadProfile, signOut } = useAuth();
@@ -43,6 +46,7 @@ export default function App() {
   if (!owner?.display_name || !owner.adult_confirmed_at || !owner.cluster_id || !pet || !petReady) return <Onboarding />;
 
   return (
+    <InboxProvider>
     <div className="mx-auto flex h-full max-w-md flex-col bg-cream">
       <OfflineBanner />
       {import.meta.env.DEV && (
@@ -56,10 +60,13 @@ export default function App() {
           <Route path="/matches" element={<Matches />} />
           <Route path="/chat/:conversationId" element={<Chat />} />
           {isModerator && <Route path="/moderation" element={<Moderation />} />}
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/settings/pet" element={<PetEditor />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
       <TabBar showModeration={isModerator} />
     </div>
+    </InboxProvider>
   );
 }

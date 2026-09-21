@@ -836,6 +836,27 @@ export type Database = {
           target_pet_name: string
         }[]
       }
+      get_my_blocks: {
+        Args: never
+        Returns: {
+          blocked_at: string
+          blocked_id: string
+          owner_name: string
+          pet_name: string
+        }[]
+      }
+      get_my_reports: {
+        Args: never
+        Returns: {
+          created_at: string
+          details: string
+          owner_name: string
+          pet_name: string
+          reason: Database["public"]["Enums"]["report_reason"]
+          report_id: string
+          status: Database["public"]["Enums"]["report_status"]
+        }[]
+      }
       get_pet_profile: {
         Args: { p_pet_id: string; p_viewer_pet_id: string }
         Returns: {
@@ -872,6 +893,10 @@ export type Database = {
         Returns: Json
       }
       rewind_last_swipe: { Args: { p_from_pet_id: string }; Returns: Json }
+      set_pet_photos: {
+        Args: { p_paths: string[]; p_pet_id: string }
+        Returns: string[]
+      }
       set_pet_tags: {
         Args: {
           p_pet_id: string

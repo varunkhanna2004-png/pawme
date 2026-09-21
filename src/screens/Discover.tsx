@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth';
 import { petPhotoUrl, supabase, type DeckCard, type Enums } from '../lib/supabase';
 import { errorCopy } from '../lib/format';
 import { inviteUrl, shareLink } from '../lib/share';
+import { useInbox } from '../lib/inbox';
 import SwipeDeck, { type SwipeDeckHandle } from '../components/SwipeDeck';
 import MatchOverlay from '../components/MatchOverlay';
 import { Toast, useOnline } from '../components/States';
@@ -17,6 +18,7 @@ export default function Discover() {
   const { owner, pet } = useAuth();
   const navigate = useNavigate();
   const online = useOnline();
+  const inbox = useInbox();
   const deckRef = useRef<SwipeDeckHandle>(null);
 
   const [cards, setCards] = useState<DeckCard[]>([]);
@@ -112,10 +114,11 @@ export default function Discover() {
       if (result.matched && result.conversation_id) {
         navigator.vibrate?.([30, 60, 30]);
         setLastSwiped(null); // a match cannot be rewound
+        inbox.acknowledge(result.conversation_id); // the overlay announces it; no banner on top
         setMatch({ card, conversationId: result.conversation_id });
       }
     },
-    [petId, refreshSwipeState],
+    [petId, refreshSwipeState, inbox],
   );
 
   async function rewind() {
