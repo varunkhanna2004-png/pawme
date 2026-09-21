@@ -281,7 +281,7 @@ export type Database = {
           kind?: Database["public"]["Enums"]["message_kind"]
           payload?: Json | null
           photo_path?: string | null
-          sender_id: string
+          sender_id?: string
         }
         Update: {
           body?: string | null

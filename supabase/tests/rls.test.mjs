@@ -208,6 +208,16 @@ const joinChannel = (uid, topic) => asUser(uid, async () => { await db.exec(`sel
 ok('realtime: participant may broadcast typing', (await joinChannel(A, `conversation:${conv}`)).length === 1);
 await denied('realtime: outsider may not join the conversation channel', () => joinChannel(C, `conversation:${conv}`), 'row-level security');
 
+// Joining a private channel = being able to SELECT from realtime.messages for that topic.
+await db.exec(`insert into realtime.messages (topic, extension) values ('probe','broadcast')`);
+const canJoin = (uid, topic) => asUser(uid, async () => { await db.exec(`select set_config('realtime.topic','${topic}',false)`); return (await q(`select 1 from realtime.messages limit 1`)).length > 0; });
+ok('realtime: participant may join conversation:<id>', await canJoin(B, `conversation:${conv}`));
+ok('realtime: outsider may NOT join conversation:<id>', !(await canJoin(C, `conversation:${conv}`)));
+ok('realtime: owner may join their own inbox:<owner_id>', await canJoin(A, `inbox:${A}`));
+ok("realtime: nobody may join someone else's inbox", !(await canJoin(C, `inbox:${A}`)));
+ok('realtime: arbitrary topics are closed', !(await canJoin(A, 'lobby')) && !(await canJoin(A, 'conversation:not-a-uuid')));
+await denied('realtime: nobody can broadcast on an inbox channel', () => joinChannel(A, `inbox:${A}`), 'row-level security');
+
 // ---------- reports / moderation ----------
 const msgB = await asUser(B, async () => (await q(`insert into public.messages (conversation_id, body) values ($1,'send me money first') returning id`, [conv]))[0].id);
 await asUser(A, () => q(`insert into public.reports (target_owner_id, target_pet_id, message_id, reason, details) values ($1,$2,$3,'scam','asked for money')`, [B, pB, msgB]));
