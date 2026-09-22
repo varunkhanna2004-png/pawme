@@ -7,7 +7,7 @@ const tab = ({ isActive }: { isActive: boolean }) =>
 export default function TabBar({ showModeration }: { showModeration?: boolean }) {
   const { pathname } = useLocation();
   const { unreadCount } = useInbox();
-  if (pathname.startsWith('/chat/') || pathname === '/settings/pet') return null; // full-height screens
+  if (pathname.startsWith('/chat/') || pathname === '/settings/pet' || pathname === '/settings/preview') return null; // full-height screens
   return (
     <nav className="flex border-t border-black/5 bg-white pb-[env(safe-area-inset-bottom)]">
       <NavLink to="/" end className={tab}><span className="text-xl" aria-hidden>🐾</span>Discover</NavLink>

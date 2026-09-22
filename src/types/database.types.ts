@@ -872,6 +872,7 @@ export type Database = {
           status: Database["public"]["Enums"]["report_status"]
         }[]
       }
+      get_owner_stats: { Args: never; Returns: Json }
       get_pet_profile: {
         Args: { p_pet_id: string; p_viewer_pet_id: string }
         Returns: {

@@ -80,7 +80,7 @@ update public.ranking_config set allow_seed = true where cluster_id = 'makati';
 ### Tests
 
 ```bash
-npm run test:db     # 206 database tests (RLS, grants, functions) on in-memory Postgres — no Docker needed
+npm run test:db     # 211 database tests (RLS, grants, functions) on in-memory Postgres — no Docker needed
 npm run typecheck
 npm run build
 
@@ -92,6 +92,7 @@ node --env-file=.env.seed.local e2e/safety.cjs              # report / block / u
 node --env-file=.env.seed.local e2e/onboarding.cjs          # brand-new user → swiping; EXIF stripping
 node --env-file=.env.seed.local e2e/share.cjs               # share card is public-safe; ?ref= credit
 node --env-file=.env.seed.local e2e/playdate.cjs            # propose → accept / counter / decline; feedback prompt
+node --env-file=.env.seed.local e2e/pilot.cjs               # card preview (public-safe) + moderator stats
 node --env-file=.env.seed.local e2e/settings.cjs && npm run seed:dev:reset   # incl. a REAL account deletion
 ```
 
@@ -99,7 +100,7 @@ Reset the test accounts between suites (command above).
 
 ## Database
 
-Migrations are in `supabase/migrations/` (14 files). The Supabase CLI is linked to **Pawme-Dev**; check before pushing anything:
+Migrations are in `supabase/migrations/` (15 files). The Supabase CLI is linked to **Pawme-Dev**; check before pushing anything:
 
 ```bash
 cat supabase/.temp/project-ref          # must print the project you intend
@@ -158,7 +159,7 @@ Netlify works the same way: build `npm run build`, publish `dist`, the same two 
 - [ ] `supabase link --project-ref tzifbmuuczogckruptap`, `supabase db push`, deploy `delete-account`, then **re-link to dev**
 - [ ] Realtime "Allow public access" OFF; Email provider on with custom SMTP; templates show `{{ .Token }}`; Phone provider off
 - [ ] `select allow_seed from ranking_config` → `false`; `select count(*) from owners where is_seed` → `0`
-- [ ] Make your own account a moderator: `update public.owners set role = 'moderator' where id = '<your auth user id>';`
+- [ ] Sign in once with your own email, then grant yourself moderator with `scripts/grant-moderator.sql` (edit the address, run it in the SQL editor). Moderator status is the `owners.role` column — data, not code — so it can be granted or revoked any time without a redeploy. The moderation queue and the pilot stats tab (Moderation → Stats) are gated on it.
 - [ ] Advisors clean (see above); Vercel variables switched to the production URL + publishable key; redeploy; the TEST BUILD ribbon is gone
 
 ## Project layout

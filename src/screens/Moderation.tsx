@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase';
 import type { Database } from '../types/database.types';
 import { errorCopy, timeShort } from '../lib/format';
 import { Spinner } from '../components/States';
+import StatsPanel from '../components/Stats';
 
 type Row = Database['public']['Functions']['get_moderation_queue']['Returns'][number];
 
@@ -24,6 +25,7 @@ export default function Moderation() {
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+  const [tab, setTab] = useState<'queue' | 'stats'>('queue');
 
   const load = useCallback(async () => {
     const { data, error } = await supabase.rpc('get_moderation_queue', { p_status: 'open' });
@@ -48,11 +50,17 @@ export default function Moderation() {
   return (
     <div className="flex h-full flex-col">
       <header className="flex items-center justify-between px-5 pb-2 pt-3">
-        <h1 className="text-2xl font-extrabold tracking-tight">Moderation queue</h1>
-        <button onClick={() => void load()} className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-muted shadow-sm">Refresh</button>
+        <h1 className="text-2xl font-extrabold tracking-tight">{tab === 'queue' ? 'Moderation queue' : 'Pilot stats'}</h1>
+        {tab === 'queue' && <button onClick={() => void load()} className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-muted shadow-sm">Refresh</button>}
       </header>
+      <div className="mx-5 mb-3 flex rounded-full bg-black/5 p-1" role="tablist">
+        {(['queue', 'stats'] as const).map((t) => (
+          <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`flex-1 rounded-full py-1.5 text-sm font-bold ${tab === t ? 'bg-white shadow-sm' : 'text-muted'}`}>{t === 'queue' ? 'Queue' : 'Stats'}</button>
+        ))}
+      </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
+      {tab === 'stats' && <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4"><StatsPanel /></div>}
+      {tab === 'queue' && <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4">
         {error && <p role="alert" className="mb-3 rounded-xl bg-nope/10 px-4 py-3 text-sm text-nope">{error}</p>}
         {rows === null && !error && <div className="flex justify-center pt-16"><Spinner /></div>}
         {rows?.length === 0 && (
@@ -102,7 +110,7 @@ export default function Moderation() {
             </li>
           ))}
         </ul>
-      </div>
+      </div>}
     </div>
   );
 }

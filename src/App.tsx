@@ -11,6 +11,7 @@ import Moderation from './screens/Moderation';
 import Onboarding from './screens/onboarding/Onboarding';
 import Settings from './screens/Settings';
 import PetEditor from './screens/PetEditor';
+import CardPreview from './screens/CardPreview';
 import { InboxProvider } from './lib/inbox';
 
 export default function App() {
@@ -62,6 +63,7 @@ export default function App() {
           {isModerator && <Route path="/moderation" element={<Moderation />} />}
           <Route path="/settings" element={<Settings />} />
           <Route path="/settings/pet" element={<PetEditor />} />
+          <Route path="/settings/preview" element={<CardPreview />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>

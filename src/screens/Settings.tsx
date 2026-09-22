@@ -55,6 +55,12 @@ export default function Settings() {
             <span className="rounded-full bg-brand px-4 py-2 text-sm font-bold text-white">Edit pet</span>
           </Link>
         )}
+        {pet && (
+          <Link to="/settings/preview" data-testid="preview-link" className="mt-2 flex items-center justify-between rounded-2xl bg-white px-4 py-3 shadow-sm active:bg-black/5">
+            <span><span className="block font-semibold">Preview my card</span><span className="block text-xs text-muted">See exactly what other owners see — and what they never do</span></span>
+            <span className="text-xl text-muted" aria-hidden>›</span>
+          </Link>
+        )}
 
         <Section title="Notifications">
           <Toggle label="In-app alerts" hint="A banner when you get a new match or message" checked={owner.notify_in_app} onChange={(v) => void savePref({ notify_in_app: v })} />

@@ -330,6 +330,25 @@ ok('report survives reporter deletion (evidence kept)', (await q(`select count(*
   await db.exec(`delete from public.reports where reporter_id='${S1}'; delete from auth.users where id in ('${S1}','${S2}')`);
 }
 
+// ---------- owner stats (moderator-only headline counts) ----------
+{
+  const stats = await asUser(MOD, async () => (await q(`select public.get_owner_stats() s`))[0].s);
+  const truth = {
+    owners_total: (await q(`select count(*)::int n from public.owners`))[0].n,
+    pets: (await q(`select count(*)::int n from public.pets`))[0].n,
+    matches_total: (await q(`select count(*)::int n from public.matches`))[0].n,
+    messages: (await q(`select count(*)::int n from public.messages`))[0].n,
+    playdates_proposed: (await q(`select count(*)::int n from public.messages where kind='playdate_proposal'`))[0].n,
+    waitlisted: (await q(`select count(*)::int n from public.waitlist`))[0].n,
+    reports_open: (await q(`select count(*)::int n from public.reports where status='open'`))[0].n,
+  };
+  ok('get_owner_stats: counts match the tables', Object.entries(truth).every(([k, v]) => stats[k] === v) && stats.signups_7d === truth.owners_total && typeof stats.as_of === 'string', JSON.stringify(stats));
+  await denied('get_owner_stats: a normal owner is refused', () => asUser(A, () => q(`select public.get_owner_stats()`)), 'NOT_A_MODERATOR');
+  await denied('get_owner_stats: anon is refused', () => asRole('anon', null, () => q(`select public.get_owner_stats()`)), 'permission denied');
+  const mine = await asUser(C, () => q(`select * from public.get_pet_profile($1,$1)`, [pC]));
+  ok('profile preview: get_pet_profile on your OWN pet returns the public-safe card (no coordinates, no email)', mine.length === 1 && mine[0].name === 'Coco' && !Object.keys(mine[0]).some((k) => /lat|lng|loc|phone|email/.test(k)));
+}
+
 // ---------- banned identities (email): suspension survives delete + re-signup ----------
 ok('earlier suspend→unsuspend of B left no ban behind', (await q(`select count(*)::int n from public.banned_identities`))[0].n === 0);
 await asUser(C, () => q(`insert into public.reports (target_owner_id, reason) values ($1,'harassment')`, [B]));
