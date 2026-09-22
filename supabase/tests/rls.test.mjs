@@ -191,6 +191,17 @@ await denied('cannot accept your own proposal', () => asUser(A, () => q(`select 
 await denied('third party cannot answer a proposal', () => asUser(C, () => q(`select public.respond_playdate($1,true)`, [prop.id])), 'PROPOSAL_NOT_FOUND');
 ok('recipient accepts proposal', (await asUser(B, async () => (await q(`select public.respond_playdate($1,true) r`, [prop.id]))[0].r)).status === 'accepted');
 await denied('proposal cannot be answered twice', () => asUser(B, () => q(`select public.respond_playdate($1,false)`, [prop.id])), 'PROPOSAL_ALREADY_ANSWERED');
+// counter-proposal
+const prop2 = await asUser(B, async () => (await q(`insert into public.messages (conversation_id, kind, payload) values ($1,'playdate_proposal',$2) returning id`, [conv, JSON.stringify({ place: 'Legazpi Active Park', starts_at: '2026-10-04T09:00:00+08:00' })]))[0].id);
+await denied('counter: the sender cannot counter their own proposal', () => asUser(B, () => q(`select public.counter_playdate($1,'Salcedo Park','2026-10-04T10:00:00+08:00')`, [prop2])), 'CANNOT_ANSWER_OWN_PROPOSAL');
+await denied('counter: a third party cannot counter', () => asUser(C, () => q(`select public.counter_playdate($1,'Salcedo Park','2026-10-04T10:00:00+08:00')`, [prop2])), 'PROPOSAL_NOT_FOUND');
+const counterId = await asUser(A, async () => (await q(`select public.counter_playdate($1,'Salcedo Park','2026-10-04T10:00:00+08:00','Closer to us') r`, [prop2]))[0].r);
+const [oldP, newP] = await Promise.all([q(`select payload, sender_id from public.messages where id=$1`, [prop2]), q(`select payload, sender_id from public.messages where id=$1`, [counterId])]);
+ok('counter: old proposal → changed + replaced_by; new proposal by the recipient, proposed, replaces old', oldP[0].payload.status === 'changed' && oldP[0].payload.replaced_by === counterId && newP[0].sender_id === A && newP[0].payload.status === 'proposed' && newP[0].payload.replaces === prop2 && newP[0].payload.place === 'Salcedo Park', JSON.stringify(newP[0].payload));
+await denied('counter: a changed proposal cannot be accepted any more', () => asUser(A, () => q(`select public.respond_playdate($1,true)`, [prop2])), 'PROPOSAL_ALREADY_ANSWERED');
+ok('counter: the original sender can accept the counter-proposal', (await asUser(B, async () => (await q(`select public.respond_playdate($1,true) r`, [counterId]))[0].r)).status === 'accepted');
+ok('a client cannot forge a replaces pointer at another conversation\'s message', await asUser(A, async () => (await q(`insert into public.messages (conversation_id, kind, payload) values ($1,'playdate_proposal',$2) returning payload`, [conv, JSON.stringify({ place: 'x', starts_at: '2026-10-05T09:00:00+08:00', replaces: '00000000-0000-0000-0000-000000000000' })]))[0].payload.replaces === undefined));
+await denied('anon cannot call counter_playdate', () => asRole('anon', null, () => q(`select public.counter_playdate($1,'x','2026-10-04T10:00:00+08:00')`, [prop2])), 'permission denied');
 // feedback
 await asUser(A, () => q(`insert into public.playdate_feedback (match_id, owner_id, rating) values ($1,$2,4)`, [m.match_id, A]));
 await asUser(B, async () => ok("playdate feedback is private to its author", (await q(`select 1 from public.playdate_feedback`)).length === 0));

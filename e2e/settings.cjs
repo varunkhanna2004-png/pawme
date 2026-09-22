@@ -133,7 +133,7 @@ async function swipeUntil(page, target, like = true) {
   await ana.click('[aria-label="Remove photo 2"]'); // drop the old (seed) photo
   await shot(ana, 't2-edit-pet');
   await ana.click('text=Save changes');
-  await ana.waitForSelector('text=Mochi Bear', { timeout: 20000 });
+  await ana.waitForSelector('text=Edit pet', { timeout: 20000 }); // back on Settings
   await shot(ana, 't3-settings');
   check('edit saved: Settings shows the new name and breed', (await ana.locator('text=Maltese').count()) > 0);
 

@@ -73,7 +73,7 @@ update public.ranking_config set allow_seed = true where cluster_id = 'makati';
 ### Tests
 
 ```bash
-npm run test:db     # 191 database tests (RLS, grants, functions) on in-memory Postgres — no Docker needed
+npm run test:db     # 199 database tests (RLS, grants, functions) on in-memory Postgres — no Docker needed
 npm run typecheck
 npm run build
 
@@ -83,6 +83,7 @@ node e2e/spine.cjs                                          # discover → match
 node e2e/safety.cjs                                         # report / block / unmatch / moderation
 node --env-file=.env.seed.local e2e/onboarding.cjs          # brand-new user → swiping; EXIF stripping
 node --env-file=.env.seed.local e2e/share.cjs               # share card is public-safe; ?ref= credit
+node --env-file=.env.seed.local e2e/playdate.cjs            # propose → accept / counter / decline; feedback prompt
 node --env-file=.env.seed.local e2e/settings.cjs && npm run seed:dev:reset   # incl. a REAL account deletion
 ```
 
@@ -90,7 +91,7 @@ Reset the test accounts between suites (command above).
 
 ## Database
 
-Migrations are in `supabase/migrations/` (12 files). The Supabase CLI is linked to **Pawme-Dev**; check before pushing anything:
+Migrations are in `supabase/migrations/` (13 files). The Supabase CLI is linked to **Pawme-Dev**; check before pushing anything:
 
 ```bash
 cat supabase/.temp/project-ref          # must print the project you intend
@@ -178,4 +179,4 @@ e2e/              Playwright end-to-end suites + dev reset SQL
 
 ## Not built yet (V1 per the master prompt)
 
-Playdate proposal sheet + "How did it go?" prompt (the database side exists), photos in chat, the full pet profile screen, per-message reporting, email notifications (the preference is saved; nothing sends yet), waitlist launch emails, web push.
+Photos in chat, the full pet profile screen, per-message reporting, email notifications (the preference is saved; nothing sends yet), waitlist launch emails, web push.

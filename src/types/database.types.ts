@@ -772,6 +772,15 @@ export type Database = {
     }
     Functions: {
       claim_referral: { Args: { p_code: string }; Returns: boolean }
+      counter_playdate: {
+        Args: {
+          p_message_id: string
+          p_note?: string
+          p_place: string
+          p_starts_at: string
+        }
+        Returns: string
+      }
       enter_cluster: {
         Args: { p_area_label?: string; p_lat: number; p_lng: number }
         Returns: Json

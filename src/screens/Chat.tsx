@@ -8,6 +8,7 @@ import { useInbox } from '../lib/inbox';
 import { Spinner, useOnline } from '../components/States';
 import SafetySheet, { type SafetyTarget } from '../components/SafetySheet';
 import ShareCardSheet from '../components/ShareCardSheet';
+import { FeedbackPrompt, PlaydateSheet, ProposalCard, proposalOf, type ProposalPayload } from '../components/Playdate';
 
 type Message = Tables<'messages'> & { pending?: boolean; failed?: boolean };
 
@@ -23,6 +24,10 @@ export default function Chat() {
   // Captured when the menu opens: blocking ends the match, which (via Realtime) flips this
   // screen to "not available" — the sheet must survive that to show its confirmation.
   const [safetyTarget, setSafetyTarget] = useState<SafetyTarget | null>(null);
+  // Playdates (§2, §7): proposal sheet (new or a counter to an existing one), and
+  // the private "How did it go?" prompt once an accepted playdate has passed.
+  const [playdate, setPlaydate] = useState<{ counterTo?: { id: string; payload: ProposalPayload } } | null>(null);
+  const [feedbackGiven, setFeedbackGiven] = useState<boolean | null>(null); // null = not checked yet
   const [share, setShare] = useState<{ mine: { name: string; photoUrl?: string }; theirs: { name: string; photoUrl?: string } } | null>(null);
   const userId = session!.user.id;
 
@@ -66,6 +71,11 @@ export default function Chat() {
     const history = msgs.data.slice().reverse();
     setMessages((current) => [...history, ...current.filter((m) => m.pending || m.failed)]);
     if (conv.data) setOtherReadAt(conv.data.owner_a_id === userId ? conv.data.b_last_read_at : conv.data.a_last_read_at);
+    const me = inbox.data.find((r) => r.conversation_id === conversationId);
+    if (me) {
+      const fb = await supabase.from('playdate_feedback').select('rating').eq('match_id', me.match_id).eq('owner_id', userId).maybeSingle();
+      setFeedbackGiven(!!fb.data);
+    }
     markRead();
   }, [conversationId, userId, markRead]);
 
@@ -87,6 +97,7 @@ export default function Chat() {
     conversationId ? `conversation:${conversationId}` : null,
     (ch) =>
       ch
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => upsert(payload.new as Message))
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${conversationId}` }, (payload) => {
           const msg = payload.new as Message;
           upsert(msg);
@@ -193,6 +204,13 @@ export default function Chat() {
   const lastMine = [...messages].reverse().find((m) => m.sender_id === userId && !m.pending && !m.failed);
   // Compare as instants: REST and Realtime format the same timestamp differently.
   const seen = !!lastMine && !!otherReadAt && Date.parse(otherReadAt) >= Date.parse(lastMine.created_at);
+  async function respond(messageId: string, accept: boolean) {
+    const { error } = await supabase.rpc('respond_playdate', { p_message_id: messageId, p_accept: accept });
+    if (error) void load(); // already answered / match ended: refresh to the truth
+  }
+  // The feedback prompt: an accepted playdate whose time has passed, in an active match, not yet rated.
+  const pastPlaydate = messages.map((m) => ({ m, p: proposalOf(m) })).find(({ p }) => p?.status === 'accepted' && Date.parse(p.starts_at) < Date.now());
+  const showFeedback = !!pastPlaydate && feedbackGiven === false && !localStorage.getItem(`pawme:fb-skip:${info.match_id}`);
   const openers = [`Hi ${info.other_owner_name ?? 'there'}! What's ${info.other_pet_name}'s favorite park?`, `${info.my_pet_name} would love a playdate — is ${info.other_pet_name} free this weekend?`, `How does ${info.other_pet_name} get along with new friends?`];
 
   return (
@@ -222,11 +240,16 @@ export default function Chat() {
         <ul className="flex flex-col gap-1.5">
           {messages.map((m) => {
             const mine = m.sender_id === userId;
+            const proposal = proposalOf(m);
             return (
               <li key={m.id} className={`flex flex-col ${mine ? 'items-end' : 'items-start'}`}>
+                {proposal ? (
+                  <ProposalCard message={m} payload={proposal} mine={mine} otherName={info.other_owner_name ?? info.other_pet_name} active onRespond={(accept) => respond(m.id, accept)} onCounter={() => setPlaydate({ counterTo: { id: m.id, payload: proposal } })} />
+                ) : (
                 <div className={`max-w-[80%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2 ${mine ? 'rounded-br-md bg-brand text-white' : 'rounded-bl-md bg-white text-ink shadow-sm'} ${m.pending ? 'opacity-60' : ''}`}>
-                  {m.kind === 'text' ? m.body : m.kind === 'photo' ? '📷 Photo' : '📅 Playdate proposal'}
+                  {m.kind === 'text' ? m.body : '📷 Photo'}
                 </div>
+                )}
                 {m.failed ? (
                   <button onClick={() => void send(m.body ?? '', m.id)} className="mt-0.5 text-xs font-semibold text-nope">Not sent — tap to retry</button>
                 ) : (
@@ -241,8 +264,13 @@ export default function Chat() {
       </div>
 
       {share && <ShareCardSheet mine={share.mine} theirs={share.theirs} onClose={() => setShare(null)} />}
+      {playdate && <PlaydateSheet conversationId={conversationId!} otherPetName={info.other_pet_name} counterTo={playdate.counterTo} onClose={() => setPlaydate(null)} onSent={() => setPlaydate(null)} />}
+      {showFeedback && (
+        <FeedbackPrompt matchId={info.match_id} ownerId={userId} otherPetName={info.other_pet_name} onDone={() => setFeedbackGiven(true)} />
+      )}
 
       <form onSubmit={onSubmit} className="flex items-end gap-2 border-t border-black/5 bg-white px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
+        <button type="button" onClick={() => setPlaydate({})} aria-label="Propose a playdate" title="Propose a playdate" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-cream text-xl active:bg-brand/10">📅</button>
         <input value={draft} onChange={(e) => onDraftChange(e.target.value)} maxLength={2000} placeholder={online ? 'Message…' : "You're offline"} aria-label="Message" className="min-w-0 flex-1 rounded-full bg-cream px-4 py-2.5 outline-none focus:ring-2 focus:ring-brand/40" />
         <button disabled={!draft.trim()} aria-label="Send" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand text-lg text-white active:bg-brand-dark disabled:opacity-40">➤</button>
       </form>
