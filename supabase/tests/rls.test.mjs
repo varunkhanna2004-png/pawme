@@ -14,7 +14,7 @@ const SHIMS = `
 create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
 grant usage on schema public to anon, authenticated, service_role;
 create schema auth; grant usage on schema auth to anon, authenticated, service_role;
-create table auth.users (id uuid primary key default gen_random_uuid(), phone text, phone_confirmed_at timestamptz, created_at timestamptz default now());
+create table auth.users (id uuid primary key default gen_random_uuid(), email text, email_confirmed_at timestamptz, phone text, phone_confirmed_at timestamptz, created_at timestamptz default now());
 create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
 create schema storage; grant usage on schema storage to anon, authenticated, service_role;
 create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
@@ -51,11 +51,14 @@ for (const f of fs.readdirSync(MIG).sort()) {
 }
 
 // ---------- users ----------
-const mk = async (phone) => (await q(`insert into auth.users (phone) values ($1) returning id`, [phone]))[0].id;
-const [A, B, C, D, MOD] = await Promise.all(['+639170000001', '+639170000002', '+639170000003', '+639170000004', '+639170000009'].map(mk));
+const mk = async (email) => (await q(`insert into auth.users (email) values ($1) returning id`, [email]))[0].id;
+const [A, B, C, D, MOD] = await Promise.all(['ana@pawme.test', 'ben@pawme.test', 'cara@pawme.test', 'dan@pawme.test', 'mod@pawme.test'].map(mk));
 ok('signup trigger creates owners rows', (await q(`select count(*)::int n from public.owners`))[0].n === 5);
-await db.exec(`update auth.users set phone_confirmed_at = now() where id = '${A}'`);
-ok('phone confirm sets verified', (await q(`select phone_verified_at from public.owners where id=$1`, [A]))[0].phone_verified_at !== null);
+ok('sign-up copies the login email into owners.email (lower-cased)', (await q(`select email from public.owners where id=$1`, [A]))[0].email === 'ana@pawme.test');
+await db.exec(`update auth.users set email_confirmed_at = now() where id = '${A}'`);
+ok('email confirm sets the Verified badge (email_verified_at)', (await q(`select email_verified_at, phone_verified_at from public.owners where id=$1`, [A]))[0].email_verified_at !== null);
+await db.exec(`update auth.users set phone = '+639170000001', phone_confirmed_at = now() where id = '${A}'`);
+ok('dormant: a confirmed phone still stamps phone_verified_at (future optional badge)', (await q(`select phone_verified_at from public.owners where id=$1`, [A]))[0].phone_verified_at !== null);
 await db.exec(`update public.owners set role='moderator' where id='${MOD}'`);
 
 // ---------- cluster gate ----------
@@ -94,7 +97,7 @@ await asUser(A, async () => {
   await q(`update public.owners set display_name='Ana', adult_confirmed_at=now() where id=$1`, [A]);
   ok('owner can edit display_name', (await q(`select display_name from public.owners`))[0].display_name === 'Ana');
 });
-for (const col of [`role='moderator'`, `status='active'`, `subscription_tier='gold'`, `cluster_id='makati'`, `loc_lat=1`, `is_seed=true`, `phone_verified_at=now()`])
+for (const col of [`role='moderator'`, `status='active'`, `subscription_tier='gold'`, `cluster_id='makati'`, `loc_lat=1`, `is_seed=true`, `phone_verified_at=now()`, `email_verified_at=now()`])
   await denied(`owner cannot set ${col.split('=')[0]}`, () => asUser(A, () => q(`update public.owners set ${col} where id=$1`, [A])), 'permission denied');
 await asUser(A, async () => ok("cannot update someone else's owner row", (await db.query(`update public.owners set display_name='x' where id=$1`, [B])).affectedRows === 0));
 await denied('authenticated cannot read ranking_config', () => asUser(A, () => q(`select * from public.ranking_config`)), 'permission denied');
@@ -131,7 +134,7 @@ ok('deck: no coordinates / scores / contact fields in output', !keys.some(k => /
 ok('deck: distance rounded to 0.1 km or 0 (<1km)', dA.every(r => r.distance_km === null || Number(r.distance_km) === 0 || Number.isInteger(Math.round(Number(r.distance_km) * 10))), dA.map(r => r.distance_km).join(','));
 ok('deck: why codes present', dA.find(r => r.pet_id === pB).why.includes('similar_size_and_energy'), JSON.stringify(dA.map(r => r.why)));
 ok('deck: similar pet ranks above dissimilar (run 5x)', (await Promise.all([1, 2, 3, 4, 5].map(async () => (await deck(A, pA))[0].pet_id))).every(id => id === pB));
-ok('deck: verified flag', (await deck(B, pB)).find(r => r.pet_id === pA).verified === true);
+ok('deck: verified flag = email confirmed (A yes, B not yet)', (await deck(B, pB)).find(r => r.pet_id === pA).verified === true && (await deck(A, pA)).find(r => r.pet_id === pB).verified === false);
 await denied("deck: cannot fetch with someone else's pet", () => deck(A, pB), 'NOT_YOUR_PET');
 await denied('deck: waitlisted owner refused', async () => { const p = await asRole('service_role', null, () => q(`insert into public.pets (owner_id,name,species,sex,birth_date,size,intents) values ($1,'Out','dog','male','2022-01-01','small','{playdate}') returning id`, [D])); return deck(D, p[0].id); }, 'NOT_IN_CLUSTER');
 await asUser(B, () => q(`update public.owners set show_distance=false where id=$1`, [B]));
@@ -269,7 +272,7 @@ const codeA = (await q(`select referral_code from public.owners where id=$1`, [A
 ok('referral: credited once', (await asUser(C, async () => (await q(`select public.claim_referral($1) r`, [codeA.toUpperCase()]))[0].r)) === true && (await asUser(C, async () => (await q(`select public.claim_referral($1) r`, [codeA]))[0].r)) === false);
 ok('referral: cannot refer yourself', (await asUser(A, async () => (await q(`select public.claim_referral($1) r`, [codeA]))[0].r)) === false);
 const exp = await asUser(A, async () => (await q(`select public.export_my_data() r`))[0].r);
-ok('export: contains own data only', exp.account.phone === '+639170000001' && exp.pets.length === 1 && exp.messages_sent.every(x => x.sender_id === A) && !('role' in exp.owner), Object.keys(exp).join(','));
+ok('export: contains own data only', exp.account.email === 'ana@pawme.test' && exp.account.phone === '+639170000001' && exp.pets.length === 1 && exp.messages_sent.every(x => x.sender_id === A) && !('role' in exp.owner), Object.keys(exp).join(','));
 for (const t of ['owners', 'pets', 'pet_photos', 'pet_tags', 'likes', 'matches', 'conversations', 'messages', 'reports', 'blocks', 'playdate_feedback', 'waitlist', 'ranking_config'])
   await denied(`anon cannot read ${t}`, () => asRole('anon', null, () => q(`select * from public.${t} limit 1`)), 'permission denied');
 for (const f of [`get_deck('${pA}')`, `get_inbox()`, `export_my_data()`, `enter_cluster(14.55,121.02)`, `get_moderation_queue()`])
@@ -282,7 +285,7 @@ ok('seed rows allowed once allow_seed=true (dev)', true);
 const rlsOff = await q(`select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity`);
 ok('RLS enabled on every public table', rlsOff.length === 0, rlsOff.map(r => r.relname).join(','));
 const tables = await q(`select count(*)::int n from pg_tables where schemaname='public'`);
-ok('exactly 14 tables: the 13 from §10 + banned_phones', tables[0].n === 14);
+ok('exactly 14 tables: the 13 from §10 + banned_identities', tables[0].n === 14);
 const fkNoIdx = await q(`
   select c.conrelid::regclass::text as tbl, a.attname from pg_constraint c
   join pg_attribute a on a.attrelid=c.conrelid and a.attnum=c.conkey[1]
@@ -327,38 +330,47 @@ ok('report survives reporter deletion (evidence kept)', (await q(`select count(*
   await db.exec(`delete from public.reports where reporter_id='${S1}'; delete from auth.users where id in ('${S1}','${S2}')`);
 }
 
-// ---------- banned phones: suspension survives delete + re-signup ----------
-ok('earlier suspend→unsuspend of B left no ban behind', (await q(`select count(*)::int n from public.banned_phones`))[0].n === 0);
+// ---------- banned identities (email): suspension survives delete + re-signup ----------
+ok('earlier suspend→unsuspend of B left no ban behind', (await q(`select count(*)::int n from public.banned_identities`))[0].n === 0);
 await asUser(C, () => q(`insert into public.reports (target_owner_id, reason) values ($1,'harassment')`, [B]));
 const rep2 = (await q(`select id from public.reports where status='open' and target_owner_id=$1`, [B]))[0];
 await asUser(MOD, () => q(`select public.resolve_report($1,'suspend')`, [rep2.id]));
-const bans = await q(`select * from public.banned_phones`);
-ok('suspend records a ban: hash only, never the number', bans.length === 1 && /^[0-9a-f]{64}$/.test(bans[0].phone_hash) && !JSON.stringify(bans[0]).includes('9170000002') && bans[0].reason === 'harassment' && bans[0].banned_by === MOD);
-await denied('authenticated cannot read banned_phones', () => asUser(C, () => q(`select * from public.banned_phones`)), 'permission denied');
-await denied('anon cannot read banned_phones', () => asRole('anon', null, () => q(`select * from public.banned_phones`)), 'permission denied');
-await denied('authenticated cannot write banned_phones', () => asUser(C, () => q(`delete from public.banned_phones`)), 'permission denied');
-await denied('authenticated cannot call the ban helpers', () => asUser(C, () => q(`select private.is_phone_banned('+639170000002')`)), 'permission denied');
+const bans = await q(`select * from public.banned_identities`);
+ok('suspend records an EMAIL ban: hash only, never the address', bans.length === 1 && bans[0].kind === 'email' && /^[0-9a-f]{64}$/.test(bans[0].identity_hash) && !JSON.stringify(bans[0]).includes('ben@') && bans[0].reason === 'harassment' && bans[0].banned_by === MOD, JSON.stringify(bans.map((b) => b.kind)));
+await denied('authenticated cannot read banned_identities', () => asUser(C, () => q(`select * from public.banned_identities`)), 'permission denied');
+await denied('anon cannot read banned_identities', () => asRole('anon', null, () => q(`select * from public.banned_identities`)), 'permission denied');
+await denied('authenticated cannot write banned_identities', () => asUser(C, () => q(`delete from public.banned_identities`)), 'permission denied');
+await denied('authenticated cannot call the ban helpers', () => asUser(C, () => q(`select private.is_identity_banned('ben@pawme.test', null)`)), 'permission denied');
 await denied('replaced resolve_report is still moderator-only', () => asUser(C, () => q(`select public.resolve_report($1,'dismiss')`, [rep2.id])), 'NOT_A_MODERATOR');
 await denied('replaced resolve_report is still closed to anon', () => asRole('anon', null, () => q(`select public.resolve_report($1,'dismiss')`, [rep2.id])), 'permission denied');
+const h = async (x) => (await q(`select private.email_hash($1) h`, [x]))[0].h;
+ok('email normalisation: case, spaces and +tags collapse; gmail dots collapse; other domains keep dots', (await h('Ben@Pawme.Test ')) === (await h('ben+again@pawme.test')) && (await h('b.e.n@gmail.com')) === (await h('ben@googlemail.com')) && (await h('b.en@pawme.test')) !== (await h('ben@pawme.test')));
 
 await db.exec(`delete from auth.users where id='${B}'`);   // the evasion attempt: delete account…
-ok('ban survives account deletion', (await q(`select count(*)::int n from public.banned_phones`))[0].n === 1);
-const B2 = await mk('63 917 000 0002');                     // …and sign up again, number formatted differently
+ok('ban survives account deletion', (await q(`select count(*)::int n from public.banned_identities`))[0].n === 1);
+const B2 = await mk('Ben+new@Pawme.test');                    // …and sign up again with an alias of the banned address
 const b2 = (await q(`select status, suspended_at from public.owners where id=$1`, [B2]))[0];
-ok('re-signup with a banned phone → owner starts suspended', b2.status === 'suspended' && b2.suspended_at !== null);
+ok('re-signup with a banned email (even as an alias) → owner starts suspended', b2.status === 'suspended' && b2.suspended_at !== null);
 await enter(B2, 14.5650, 121.0365);
 await denied('evader cannot create a pet', () => asUser(B2, () => q(`insert into public.pets (owner_id,name,species,sex,birth_date,size,intents) values ($1,'Bruno2','dog','male','2022-01-01','medium','{playdate}')`, [B2])), 'row-level security');
 await denied('evader cannot lift their own suspension', () => asUser(B2, () => q(`update public.owners set status='active' where id=$1`, [B2])), 'permission denied');
 
-const E = await mk('+639170000005');                        // clean number, then swaps to the banned one
-ok('clean phone → active owner', (await q(`select status from public.owners where id=$1`, [E]))[0].status === 'active');
-await db.exec(`update auth.users set phone='639170000002' where id='${E}'`);
-ok('changing to a banned phone suspends the account', (await q(`select status from public.owners where id=$1`, [E]))[0].status === 'suspended');
+const E = await mk('eve@pawme.test');                          // clean address, then changes it to the banned one
+ok('clean email → active owner', (await q(`select status from public.owners where id=$1`, [E]))[0].status === 'active');
+await db.exec(`update auth.users set email='ben@pawme.test' where id='${E}'`);
+ok('changing the login email to a banned one suspends the account', (await q(`select status from public.owners where id=$1`, [E]))[0].status === 'suspended');
 
 await asUser(MOD, () => q(`select public.unsuspend_owner($1)`, [B2]));
-ok('unsuspend lifts the ban', (await q(`select count(*)::int n from public.banned_phones`))[0].n === 0 && (await q(`select status from public.owners where id=$1`, [B2]))[0].status === 'active');
-const F = await mk('+639170000002');
-ok('after the ban is lifted the number signs up normally', (await q(`select status from public.owners where id=$1`, [F]))[0].status === 'active');
+ok('unsuspend lifts the ban', (await q(`select count(*)::int n from public.banned_identities`))[0].n === 0 && (await q(`select status from public.owners where id=$1`, [B2]))[0].status === 'active');
+const F = await mk('ben@pawme.test');
+ok('after the ban is lifted the address signs up normally', (await q(`select status from public.owners where id=$1`, [F]))[0].status === 'active');
+
+// dormant phone path: an account that also has a phone gets both hashes banned
+await db.exec(`update auth.users set phone='+639170000077' where id='${F}'`);
+await asUser(C, () => q(`insert into public.reports (target_owner_id, reason) values ($1,'spam')`, [F]));
+await asUser(MOD, async () => q(`select public.resolve_report((select id from public.reports where target_owner_id=$1 and status='open' limit 1),'suspend')`, [F]));
+ok('suspending an account with a phone bans BOTH the email and the phone hash', (await q(`select string_agg(kind, ',' order by kind) k from public.banned_identities`))[0].k === 'email,phone');
+ok('re-signup by that phone alone starts suspended (dormant phone ban still works)', (await q(`select status from public.owners where id=$1`, [await (async () => (await q(`insert into auth.users (phone) values ('+639170000077') returning id`))[0].id)()]))[0].status === 'suspended');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -4,6 +4,7 @@
 // notification prefs; block → unblock; report history; data export; and account
 // deletion through the Edge Function, with the cascade + storage cleanup verified.
 const { chromium } = require('playwright');
+const lib = require('./lib.cjs');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
@@ -23,21 +24,13 @@ const checks = [];
 const check = (name, ok, extra = '') => { checks.push(!!ok); log(ok ? 'PASS' : 'FAIL', name, extra); };
 const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
 
-/** A real signed-in API client for a test number — used to look at the world as that user (RLS applies). */
-async function asUser(phone) {
-  const c = createClient(URL_, ANON, { auth: { persistSession: false, autoRefreshToken: false } });
-  const sent = await c.auth.signInWithOtp({ phone: `+${phone}` });
-  if (sent.error) throw new Error(`otp ${phone}: ${sent.error.message}`);
-  const v = await c.auth.verifyOtp({ phone: `+${phone}`, token: '123456', type: 'sms' });
-  if (v.error) throw new Error(`verify ${phone}: ${v.error.message}`);
-  return c;
-}
+const asUser = lib.apiAsUser;
 /** Same, but riding on the session a browser page already has — avoids a second OTP request for that number (they are rate-limited). */
 async function apiFromPage(page) {
   const token = await page.evaluate(() => JSON.parse(localStorage.getItem(Object.keys(localStorage).find((k) => /^sb-.*-auth-token$/.test(k)))).access_token);
   return { token, api: createClient(URL_, ANON, { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } }) };
 }
-const usersByPhone = async () => Object.fromEntries((await admin.auth.admin.listUsers({ page: 1, perPage: 200 })).data.users.filter((u) => u.phone).map((u) => [u.phone, u]));
+const usersByEmail = lib.usersByEmail;
 async function listFiles(bucket, prefix) {
   const out = [];
   for (const item of (await admin.storage.from(bucket).list(prefix, { limit: 1000 })).data ?? []) {
@@ -45,13 +38,7 @@ async function listFiles(bucket, prefix) {
   }
   return out;
 }
-async function signIn(page, local, waitFor = 'nav >> text=Discover') {
-  await page.goto(ORIGIN + '/');
-  await page.click('text=Get started');
-  await page.fill('#phone', local); await page.click('text=Send code');
-  await page.fill('#otp', '123456'); await page.click('text=Verify');
-  await page.waitForSelector(waitFor, { timeout: 20000 });
-}
+const signIn = (page, email, waitFor = 'nav >> text=Discover') => lib.signIn(page, email, { waitFor });
 const topCard = (page) => page.locator('[role=group][aria-label*="Swipe right"]');
 const topName = async (page) => ((await topCard(page).getAttribute('aria-label', { timeout: 15000 })) ?? '').split('.')[0];
 async function swipeUntil(page, target, like = true) {
@@ -63,8 +50,8 @@ async function swipeUntil(page, target, like = true) {
 }
 
 (async () => {
-  const users = await usersByPhone();
-  const anaId = users['639170000001'].id, benId = users['639170000002'].id;
+  const users = await usersByEmail();
+  const anaId = users[lib.EMAILS.ana].id, benId = users[lib.EMAILS.ben].id;
   const photoNew = path.join(OUT, 'in-new-main-with-gps.jpg');
   await sharp(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="3000"><rect width="2400" height="3000" fill="#7b2cbf"/><circle cx="1200" cy="1400" r="700" fill="#f2e2c4"/><circle cx="980" cy="1250" r="80"/><circle cx="1420" cy="1250" r="80"/><ellipse cx="1200" cy="1560" rx="120" ry="80"/></svg>')).jpeg({ quality: 92 }).withExif({ IFD3: { GPSLatitudeRef: 'N', GPSLatitude: '14/1 33/1 3644/100', GPSLongitudeRef: 'E', GPSLongitude: '121/1 1/1 2084/100' } }).toFile(photoNew);
 
@@ -78,7 +65,7 @@ async function swipeUntil(page, target, like = true) {
     return page;
   };
   const ana = await mk('ana'), ben = await mk('ben');
-  await signIn(ana, '9170000001'); await signIn(ben, '9170000002');
+  await signIn(ana, lib.EMAILS.ana); await signIn(ben, lib.EMAILS.ben);
 
   // set-up: Ana ↔ Ben match with a message each way (gives the deletion something real to cascade)
   await topCard(ana).waitFor(); await swipeUntil(ana, 'Bruno');
@@ -107,14 +94,15 @@ async function swipeUntil(page, target, like = true) {
   await ana.click('label:has-text("In-app alerts")');
   await ana.waitForFunction(() => document.querySelector('[role=switch][aria-label="In-app alerts"]').checked);
 
-  // email preference needs an address first
+  // the login email is prefilled, so the preference can be switched on straight away; the address can still be changed
+  check('Settings prefills the login email as the notification address', (await ana.inputValue('[aria-label="Email address"]')) === lib.EMAILS.ana);
   await ana.click('label:has-text("Email alerts")');
-  await ana.waitForSelector('text=Add your email below');
+  await ana.waitForFunction(() => document.querySelector('[role=switch][aria-label="Email alerts"]').checked);
   await ana.fill('[aria-label="Email address"]', 'ana@example.com');
   await ana.click('button:text-is("Save")');
   await ana.waitForSelector('text=Saved.');
   const prefs = (await admin.from('owners').select('email, notify_email, notify_in_app').eq('id', anaId).single()).data;
-  check('email preference: refuses without an address, then saves address + preference', prefs.email === 'ana@example.com' && prefs.notify_email === true && prefs.notify_in_app === true, JSON.stringify(prefs));
+  check('email preference: switched on, and a different notification address saves', prefs.email === 'ana@example.com' && prefs.notify_email === true && prefs.notify_in_app === true, JSON.stringify(prefs));
 
   // ================================================================ 2. edit pet → changes show in ANOTHER user's deck
   const { api: benApi, token: benToken } = await apiFromPage(ben); // note: Ben and Ana are matched, so Ben's DECK won't deal Mochi — use a third viewer for the deck
@@ -147,10 +135,11 @@ async function swipeUntil(page, target, like = true) {
   check('the new photo was EXIF-stripped on the way in (same pipeline as onboarding)', !(await sharp(stored).metadata()).exif);
 
   // the DECK itself, in a browser, as someone who has not swiped on Mochi: the fresh number
-  const fresh = (await usersByPhone())['639170000003']; if (fresh) await admin.auth.admin.deleteUser(fresh.id);
+  await lib.freeAccount(lib.EMAILS.fresh);
+  await lib.stubOtpSend(viewer);
   await viewer.context().grantPermissions(['geolocation']); await viewer.context().setGeolocation({ latitude: 14.5601, longitude: 121.0224 });
   await viewer.goto(ORIGIN + '/'); await viewer.click('text=Get started');
-  await viewer.fill('#phone', '9170000003'); await viewer.click('text=Send code'); await viewer.fill('#otp', '123456'); await viewer.click('text=Verify');
+  await viewer.fill('#email', lib.EMAILS.fresh); await viewer.click('text=Send code'); await viewer.waitForSelector('#otp'); await lib.ensureUser(lib.EMAILS.fresh); await viewer.fill('#otp', await lib.otpFor(lib.EMAILS.fresh)); await viewer.click('text=Verify');
   await viewer.waitForSelector('text=First, about you', { timeout: 20000 });
   await viewer.fill('#owner-name', 'Dana'); await viewer.check('input[type=checkbox]'); await viewer.click('button:has-text("Continue")');
   await viewer.click('text=Use my location'); await viewer.waitForSelector('text=Tell us about your pet', { timeout: 20000 });
@@ -201,7 +190,7 @@ async function swipeUntil(page, target, like = true) {
   await ana.waitForSelector('[data-testid=report-row]');
   const row1 = await ana.locator('[data-testid=report-row]').first().innerText();
   check('report history shows the report as "Under review"', /Impersonation/.test(row1) && row1.includes(reportedPet) && /Under review/.test(row1), row1.replace(/\s+/g, ' '));
-  const modApi = await asUser('639170000009');
+  const modApi = await asUser(lib.EMAILS.mod);
   const reportId = (await admin.from('reports').select('id').eq('reporter_id', anaId).single()).data.id;
   await modApi.rpc('resolve_report', { p_report_id: reportId, p_action: 'dismiss' });
   await ana.reload(); await ana.click('nav >> text=Settings'); await ana.waitForSelector('[data-testid=report-row]');
@@ -214,8 +203,8 @@ async function swipeUntil(page, target, like = true) {
   await dl.saveAs(exportPath);
   const raw = fs.readFileSync(exportPath, 'utf8');
   const data = JSON.parse(raw);
-  check('export downloads a JSON file of everything held about the user', /^pawme-my-data-\d{4}-\d\d-\d\d\.json$/.test(dl.suggestedFilename()) && data.account.phone === '639170000001' && data.owner.display_name === 'Ana' && data.owner.email === 'ana@example.com' && data.pets[0].name === 'Mochi Bear' && data.pet_photos.length === 1 && data.reports_filed.length === 1 && data.matches.length === 1 && data.messages_sent.every((m) => m.sender_id === anaId), Object.keys(data).join(','));
-  check("export contains nobody else's personal data (no other phone, no Ben's messages, no role/moderation fields)", !raw.includes('639170000002') && !raw.includes('Park this weekend') && !('role' in data.owner) && !/resolved_by|message_snapshot/.test(raw));
+  check('export downloads a JSON file of everything held about the user', /^pawme-my-data-\d{4}-\d\d-\d\d\.json$/.test(dl.suggestedFilename()) && data.account.email === lib.EMAILS.ana && data.owner.display_name === 'Ana' && data.owner.email === 'ana@example.com' && data.pets[0].name === 'Mochi Bear' && data.pet_photos.length === 1 && data.reports_filed.length === 1 && data.matches.length === 1 && data.messages_sent.every((m) => m.sender_id === anaId), Object.keys(data).join(','));
+  check("export contains nobody else's personal data (no other email, no Ben's messages, no role/moderation fields)", !raw.includes(lib.EMAILS.ben) && !raw.includes('Park this weekend') && !('role' in data.owner) && !/resolved_by|message_snapshot/.test(raw));
 
   // ================================================================ 6. account deletion (Ben) — Edge Function → cascade + storage cleanup
   const count = async () => {
@@ -246,7 +235,7 @@ async function swipeUntil(page, target, like = true) {
   const post = await count();
   check('CASCADE: every row that belonged to Ben is gone', Object.entries(post).filter(([k]) => k !== 'files').every(([, n]) => n === 0), JSON.stringify(post));
   check('STORAGE: every photo file in Ben\'s folder is gone', post.files === 0, `${pre.files} file(s) → ${post.files}`);
-  check('AUTH: the auth user no longer exists', !(await usersByPhone())['639170000002'] || (await usersByPhone())['639170000002'].id !== benId);
+  check('AUTH: the auth user no longer exists', !(await usersByEmail())[lib.EMAILS.ben]);
   const stale = createClient(URL_, ANON, { global: { headers: { Authorization: `Bearer ${benToken}` } }, auth: { persistSession: false } });
   const staleInbox = await stale.rpc('get_inbox');
   check("Ben's old access token reaches no data", (staleInbox.data ?? []).length === 0, staleInbox.error?.message ?? 'empty result');
@@ -256,16 +245,15 @@ async function swipeUntil(page, target, like = true) {
   check("the conversation (incl. Ana's side of it) is removed with the match; Ana's account is otherwise intact", anaMsgs === 0 && (await admin.from('pets').select('name').eq('owner_id', anaId).single()).data.name === 'Mochi Bear');
   check("Ana's report survives (it wasn't about Ben) — reports are kept as moderation evidence", (await admin.from('reports').select('id').eq('reporter_id', anaId)).data.length === 1);
 
-  // signing in again with the same number is a brand-new account
-  await ben.click('text=Get started'); await ben.fill('#phone', '9170000002'); await ben.click('text=Send code'); await ben.fill('#otp', '123456'); await ben.click('text=Verify');
-  await ben.waitForSelector('text=First, about you', { timeout: 20000 });
-  check('the same phone number now signs up as a brand-new, empty account (onboarding step 1)', true);
+  // signing in again with the same email is a brand-new account
+  await lib.signIn(ben, lib.EMAILS.ben, { waitFor: 'text=First, about you', fresh: true });
+  check('the same email now signs up as a brand-new, empty account (onboarding step 1)', true);
 
   check('no uncaught page or console errors', errors.length === 0, errors.slice(0, 4).join(' | '));
   await browser.close();
 
   // leave dev tidy: remove the two throwaway accounts (the caller re-runs the seed to restore Ben)
-  for (const phone of ['639170000002', '639170000003']) { const u = (await usersByPhone())[phone]; if (u) { const files = await listFiles('pet-photos', u.id); if (files.length) await admin.storage.from('pet-photos').remove(files); await admin.auth.admin.deleteUser(u.id); } }
+  for (const email of [lib.EMAILS.ben, lib.EMAILS.fresh]) await lib.freeAccount(email);
   const failed = checks.filter((c) => !c).length;
   console.log(`\n${checks.length - failed}/${checks.length} checks passed`);
   process.exit(failed ? 1 : 0);

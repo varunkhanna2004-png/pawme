@@ -40,7 +40,7 @@ function PetCard({ card, photoIndex, dimmed }: Props) {
           <span className="truncate">{card.name}</span>
           <span className="shrink-0 text-xl font-semibold text-white/85">{formatAge(card.age_months)}</span>
           {card.verified && (
-            <span className="shrink-0 rounded-full bg-sky-500 px-1.5 text-sm" title="Owner's phone is verified" aria-label="Verified owner">✓</span>
+            <span className="shrink-0 rounded-full bg-sky-500 px-1.5 text-sm" title="Verified owner — email confirmed" aria-label="Verified owner">✓</span>
           )}
         </h2>
         <p className="mt-0.5 text-sm text-white/85">

@@ -4,6 +4,7 @@
 // propose → decline, live status updates on the other phone, and the private
 // "How did it go?" prompt after an accepted playdate's time has passed.
 const { chromium } = require('playwright');
+const lib = require('./lib.cjs');
 const path = require('path');
 const fs = require('fs');
 const { createClient } = require('@supabase/supabase-js');
@@ -23,12 +24,7 @@ const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
 const pad = (n) => String(n).padStart(2, '0');
 const tomorrow = () => { const d = new Date(); d.setDate(d.getDate() + 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 
-async function signIn(page, local) {
-  await page.goto(ORIGIN + '/'); await page.click('text=Get started');
-  await page.fill('#phone', local); await page.click('text=Send code');
-  await page.fill('#otp', '123456'); await page.click('text=Verify');
-  await page.waitForSelector('nav >> text=Discover', { timeout: 20000 });
-}
+const signIn = (page, email) => lib.signIn(page, email);
 const topCard = (page) => page.locator('[role=group][aria-label*="Swipe right"]');
 const topName = async (page) => ((await topCard(page).getAttribute('aria-label', { timeout: 15000 })) ?? '').split('.')[0];
 async function swipeUntil(page, target) {
@@ -60,7 +56,7 @@ async function propose(page, { place, date = tomorrow(), time, note, counter = f
     return page;
   };
   const ana = await mk('ana'), ben = await mk('ben');
-  await signIn(ana, '9170000001'); await signIn(ben, '9170000002');
+  await signIn(ana, lib.EMAILS.ana); await signIn(ben, lib.EMAILS.ben);
   await topCard(ana).waitFor(); await swipeUntil(ana, 'Bruno');
   await topCard(ben).waitFor(); await swipeUntil(ben, 'Mochi');
   await ben.waitForSelector('text=PAW-MATCH'); await ben.click('text=Say hi');

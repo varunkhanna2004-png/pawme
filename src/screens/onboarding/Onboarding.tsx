@@ -102,7 +102,7 @@ function StepAbout() {
 
   return (
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-      <StepShell step={1} title="First, about you" subtitle="You run this account for your pet. Other owners see your first name — never your number." footer={<PrimaryButton busy={busy} disabled={name.trim().length < 1 || !adult}>Continue</PrimaryButton>}>
+      <StepShell step={1} title="First, about you" subtitle="You run this account for your pet. Other owners see your first name — never your email." footer={<PrimaryButton busy={busy} disabled={name.trim().length < 1 || !adult}>Continue</PrimaryButton>}>
         <label className="text-sm font-semibold" htmlFor="owner-name">Your first name</label>
         <input id="owner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoComplete="given-name" autoFocus placeholder="e.g. Ana" className="mt-1 w-full rounded-2xl border border-black/10 bg-white px-4 py-3 text-lg outline-none focus:border-brand" />
         <label className="mt-5 flex items-start gap-3 rounded-2xl border border-black/10 bg-white p-4 text-sm">

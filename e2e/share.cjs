@@ -5,6 +5,7 @@
 // through the native sheet with download + copy-link fallbacks, and the ?ref=
 // link it carries credits the sharer when a new person signs up.
 const { chromium } = require('playwright');
+const lib = require('./lib.cjs');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
@@ -38,20 +39,9 @@ const HOOKS = (withNativeShare) => `
   navigator.share = async (d) => { window.__shared.push({ text: d.text ?? null, url: d.url ?? null, title: d.title ?? null, files: (d.files ?? []).map((f) => ({ name: f.name, type: f.type, size: f.size })) }); };` : ''}
 `;
 
-async function usersByPhone() {
-  const { data } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-  return Object.fromEntries(data.users.filter((u) => u.phone).map((u) => [u.phone, u]));
-}
-async function freeFreshNumber() {
-  const u = (await usersByPhone())['639170000003'];
-  if (u) await admin.auth.admin.deleteUser(u.id);
-}
-async function signIn(page, local) {
-  await page.goto(ORIGIN + '/');
-  await page.click('text=Get started');
-  await page.fill('#phone', local); await page.click('text=Send code');
-  await page.fill('#otp', '123456'); await page.click('text=Verify');
-}
+const usersByEmail = lib.usersByEmail;
+const freeFreshNumber = () => lib.freeAccount(lib.EMAILS.fresh);
+const signIn = (page, email) => lib.signIn(page, email, { waitFor: null });
 const topCard = (page) => page.locator('[role=group][aria-label*="Swipe right"]');
 const topName = async (page) => ((await topCard(page).getAttribute('aria-label', { timeout: 15000 })) ?? '').split('.')[0];
 async function swipeUntil(page, target) {
@@ -71,9 +61,9 @@ async function regionMean(buf, cx, cy) {
 
 (async () => {
   await freeFreshNumber();
-  const users = await usersByPhone();
-  const codes = Object.fromEntries((await admin.from('owners').select('id, referral_code').in('id', [users['639170000001'].id, users['639170000002'].id])).data.map((o) => [o.id, o.referral_code]));
-  const anaCode = codes[users['639170000001'].id], benCode = codes[users['639170000002'].id];
+  const users = await usersByEmail();
+  const codes = Object.fromEntries((await admin.from('owners').select('id, referral_code').in('id', [users[lib.EMAILS.ana].id, users[lib.EMAILS.ben].id])).data.map((o) => [o.id, o.referral_code]));
+  const anaCode = codes[users[lib.EMAILS.ana].id], benCode = codes[users[lib.EMAILS.ben].id];
 
   const browser = await chromium.launch();
   const errors = [];
@@ -88,8 +78,8 @@ async function regionMean(buf, cx, cy) {
   const { page: ben } = await mk('ben', {}, HOOKS(true));                                                   // a phone WITH a native share sheet
   const { ctx: anaCtx, page: ana } = await mk('ana', { acceptDownloads: true, permissions: ['clipboard-read', 'clipboard-write'] }, HOOKS(false)); // a browser WITHOUT one
 
-  await signIn(ana, '9170000001'); await topCard(ana).waitFor({ timeout: 20000 }); await swipeUntil(ana, 'Bruno');
-  await signIn(ben, '9170000002'); await topCard(ben).waitFor({ timeout: 20000 }); await swipeUntil(ben, 'Mochi');
+  await signIn(ana, lib.EMAILS.ana); await topCard(ana).waitFor({ timeout: 20000 }); await swipeUntil(ana, 'Bruno');
+  await signIn(ben, lib.EMAILS.ben); await topCard(ben).waitFor({ timeout: 20000 }); await swipeUntil(ben, 'Mochi');
   await ben.waitForSelector('text=PAW-MATCH', { timeout: 15000 });
 
   // ---------------------------------------------------------------- 1. the card renders
@@ -155,19 +145,21 @@ async function regionMean(buf, cx, cy) {
 
   // ---------------------------------------------------------------- 5. the ref link resolves → install/create-a-pet → inviter credited
   const { page: friend } = await mk('friend', { permissions: [] });
+  await lib.stubOtpSend(friend);
   await friend.goto(shared.url);
   await friend.waitForSelector('[data-testid=invited]', { timeout: 15000 });
   await shot(friend, 'h4-invited-welcome');
   check('tapping the link opens PAWME\'s welcome with the invite acknowledged + "Get started"', (await friend.locator('text=Get started').count()) === 1 && (await friend.evaluate(() => localStorage.getItem('pawme:ref'))) === benCode);
   await friend.click('text=Get started');
-  await friend.fill('#phone', '0917 000 0003'); await friend.click('text=Send code');
-  await friend.fill('#otp', '123456'); await friend.click('text=Verify');
+  await friend.fill('#email', lib.EMAILS.fresh); await friend.click('text=Send code');
+  await friend.waitForSelector('#otp'); await lib.ensureUser(lib.EMAILS.fresh);
+  await friend.fill('#otp', await lib.otpFor(lib.EMAILS.fresh)); await friend.click('text=Verify');
   await friend.waitForSelector('text=First, about you', { timeout: 20000 });
   await friend.fill('#owner-name', 'Dana'); await friend.check('input[type=checkbox]'); await friend.click('button:has-text("Continue")');
   await friend.waitForSelector('text=Where do you and your pet live?', { timeout: 15000 });
-  const dana = (await usersByPhone())['639170000003'];
+  const dana = (await usersByEmail())[lib.EMAILS.fresh];
   const referred = (await admin.from('owners').select('referred_by').eq('id', dana.id).single()).data.referred_by;
-  check('the new sign-up is credited to the sharer (owners.referred_by = Ben)', referred === users['639170000002'].id);
+  check('the new sign-up is credited to the sharer (owners.referred_by = Ben)', referred === users[lib.EMAILS.ben].id);
   const { page: junk } = await mk('junk', {});
   await junk.goto(`${ORIGIN}/?ref=%3Cscript%3Ealert(1)%3C%2Fscript%3E`);
   await junk.waitForSelector('text=Get started');

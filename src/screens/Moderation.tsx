@@ -87,7 +87,7 @@ export default function Moderation() {
 
               {confirmId === r.report_id ? (
                 <div className="mt-3 rounded-xl bg-nope/10 p-3">
-                  <p className="text-sm font-semibold">Suspend {r.target_owner_name ?? 'this owner'}? They lose access immediately, their phone number is banned from re-registering, and all open reports against them are closed.</p>
+                  <p className="text-sm font-semibold">Suspend {r.target_owner_name ?? 'this owner'}? They lose access immediately, their email address is banned from re-registering, and all open reports against them are closed.</p>
                   <div className="mt-2 flex gap-2">
                     <button onClick={() => setConfirmId(null)} className="flex-1 rounded-full border border-black/10 bg-white py-2 text-sm font-semibold">Cancel</button>
                     <button onClick={() => void resolve(r, 'suspend')} disabled={busyId === r.report_id} className="flex-1 rounded-full bg-nope py-2 text-sm font-bold text-white disabled:opacity-50">Confirm suspend</button>

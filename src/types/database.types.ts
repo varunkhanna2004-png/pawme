@@ -14,25 +14,28 @@ export type Database = {
   }
   public: {
     Tables: {
-      banned_phones: {
+      banned_identities: {
         Row: {
           banned_at: string
           banned_by: string | null
-          phone_hash: string
+          identity_hash: string
+          kind: string
           reason: Database["public"]["Enums"]["report_reason"] | null
           report_id: string | null
         }
         Insert: {
           banned_at?: string
           banned_by?: string | null
-          phone_hash: string
+          identity_hash: string
+          kind: string
           reason?: Database["public"]["Enums"]["report_reason"] | null
           report_id?: string | null
         }
         Update: {
           banned_at?: string
           banned_by?: string | null
-          phone_hash?: string
+          identity_hash?: string
+          kind?: string
           reason?: Database["public"]["Enums"]["report_reason"] | null
           report_id?: string | null
         }
@@ -318,6 +321,7 @@ export type Database = {
           discoverable: boolean
           display_name: string | null
           email: string | null
+          email_verified_at: string | null
           id: string
           is_seed: boolean
           last_active_at: string
@@ -343,6 +347,7 @@ export type Database = {
           discoverable?: boolean
           display_name?: string | null
           email?: string | null
+          email_verified_at?: string | null
           id: string
           is_seed?: boolean
           last_active_at?: string
@@ -368,6 +373,7 @@ export type Database = {
           discoverable?: boolean
           display_name?: string | null
           email?: string | null
+          email_verified_at?: string | null
           id?: string
           is_seed?: boolean
           last_active_at?: string

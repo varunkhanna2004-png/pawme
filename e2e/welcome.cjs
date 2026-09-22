@@ -31,8 +31,8 @@ const check = (n, ok, x = '') => { checks.push(!!ok); console.log(ok ? 'PASS' : 
     check(`${label}: once scrolled past the main CTA, a docked "Get started" appears at the bottom`, (await docked.count()) === 1 && (await docked.boundingBox()).y + (await docked.boundingBox()).height <= viewport.height + 1);
     if (label.startsWith('iPhone')) await page.screenshot({ path: `${OUT}/w2-welcome-scrolled.png` });
     await docked.click();
-    await page.waitForSelector('#phone');
-    check(`${label}: docked CTA goes to the phone step`, true);
+    await page.waitForSelector('#email');
+    check(`${label}: docked CTA goes to the email step`, true);
     check(`${label}: no page errors`, errors.length === 0, errors.join(' | '));
     await page.context().close();
   }

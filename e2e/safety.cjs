@@ -1,6 +1,7 @@
-// Run (dev server up, dev project seeded, test accounts reset):  node e2e/safety.cjs
+// Run (dev server up, dev project seeded, test accounts reset):  node --env-file=.env.seed.local e2e/safety.cjs
 // Trust & safety (§9) end to end in three headless browsers: Ana, Ben and the moderator.
 const { chromium } = require('playwright');
+const lib = require('./lib.cjs');
 const OUT = require('path').join(__dirname, 'shots');
 require('fs').mkdirSync(OUT, { recursive: true });
 const URL = 'http://localhost:5173/';
@@ -9,15 +10,7 @@ const checks = [];
 const check = (name, ok, extra = '') => { checks.push(ok); log(ok ? 'PASS' : 'FAIL', name, extra); };
 const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
 
-async function signIn(page, local, waitFor = 'nav >> text=Discover') {
-  await page.goto(URL);
-  await page.click('text=Get started');
-  await page.fill('#phone', local);
-  await page.click('text=Send code');
-  await page.fill('#otp', '123456');
-  await page.click('text=Verify');
-  await page.waitForSelector(waitFor, { timeout: 20000 });
-}
+const signIn = (page, email, waitFor = 'nav >> text=Discover') => lib.signIn(page, email, { waitFor });
 const topCard = (page) => page.locator('[role=group][aria-label*="Swipe right"]');
 const topName = async (page) => ((await topCard(page).getAttribute('aria-label', { timeout: 15000 })) ?? '').split('.')[0];
 async function drag(page, dir) {
@@ -43,7 +36,7 @@ const sheet = (page) => page.locator('[role=dialog][aria-label="Safety options"]
     return page;
   };
   const ana = await mk('ana'), ben = await mk('ben'), mod = await mk('mod');
-  await signIn(ana, '9170000001'); await signIn(ben, '9170000002');
+  await signIn(ana, lib.EMAILS.ana); await signIn(ben, lib.EMAILS.ben);
 
   // --- set-up: Ana ↔ Ben match, Ana ↔ Thor match (Thor's owner pre-liked Mochi)
   await topCard(ana).waitFor(); await swipeUntil(ana, 'Bruno');
@@ -131,7 +124,7 @@ const sheet = (page) => page.locator('[role=dialog][aria-label="Safety options"]
   check("Ben's deck does not deal Mochi again", benDeck !== 'Mochi', `top: ${benDeck}`);
 
   // --- 5. MODERATION QUEUE
-  await signIn(mod, '9170000009', 'text=Moderation queue');
+  await signIn(mod, lib.EMAILS.mod, 'text=Moderation queue');
   await mod.waitForSelector('[data-testid=report]', { timeout: 15000 });
   await shot(mod, 's7-moderation-queue');
   const cards = await mod.locator('[data-testid=report]').allInnerTexts();

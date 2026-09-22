@@ -1,8 +1,9 @@
-// Run (dev server must be up: npm run dev):  npm i --no-save playwright && npx playwright install chromium && node e2e/spine.cjs
-// Needs the seeded dev project (npm run seed:dev). Uses the Supabase TEST phone numbers, OTP 123456.
+// Run (dev server must be up: npm run dev):  npm i --no-save playwright && npx playwright install chromium && node --env-file=.env.seed.local e2e/spine.cjs
+// Needs the seeded dev project (npm run seed:dev). Signs in as the test accounts with email OTP (see e2e/lib.cjs).
 // End-to-end proof of the spine, in two real (headless) browsers against pawme-dev:
 // Ana+Mochi and Ben+Bruno sign in with test OTPs, swipe each other, match, and chat in realtime.
 const { chromium } = require('playwright');
+const lib = require('./lib.cjs');
 const OUT = require('path').join(__dirname, 'shots');
 require('fs').mkdirSync(OUT, { recursive: true });
 const URL = 'http://localhost:5173/';
@@ -10,15 +11,17 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 const checks = [];
 const check = (name, ok, extra = '') => { checks.push(ok); log(ok ? 'PASS' : 'FAIL', name, extra); };
 
-async function signIn(page, local, shot) {
+async function signIn(page, email, shot) {
+  await lib.stubOtpSend(page);
   await page.goto(URL);
   await page.click('text=Get started');
-  await page.fill('#phone', local);
+  await page.fill('#email', email);
   if (shot) await page.screenshot({ path: `${OUT}/${shot}` });
   await page.click('text=Send code');
-  await page.fill('#otp', '123456');
+  await page.waitForSelector('#otp');
+  await page.fill('#otp', await lib.otpFor(email));
   await page.click('text=Verify');
-  await page.waitForSelector('text=Discover', { timeout: 20000 });
+  await page.waitForSelector('text=Discover', { timeout: 25000 });
 }
 const topCard = (page) => page.locator('[role=group][aria-label*="Swipe right"]');
 const topName = async (page) => ((await topCard(page).getAttribute('aria-label', { timeout: 15000 })) ?? '').split('.')[0];
@@ -57,9 +60,9 @@ async function swipeUntil(page, who, target) {
   };
   const ana = await mk('ana'), ben = await mk('ben');
 
-  await signIn(ana, '917 000 0001', '01-login.png');
-  await signIn(ben, '0917 000 0002');
-  check('both test numbers signed in through real phone-OTP auth', true);
+  await signIn(ana, lib.EMAILS.ana, '01-login.png');
+  await signIn(ben, lib.EMAILS.ben);
+  check('both test accounts signed in through real email-OTP auth (code verified by Supabase Auth)', true);
 
   await topCard(ana).waitFor({ timeout: 20000 });
   await ana.waitForTimeout(800);

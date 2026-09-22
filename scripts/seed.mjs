@@ -36,16 +36,17 @@ const AREAS = {
   guadalupe: [14.5640, 121.0430], olympia: [14.5700, 121.0230], sanlorenzo: [14.5490, 121.0200], ayala: [14.5566, 121.0234],
 };
 
-// Supabase TEST phone numbers (OTP 123456) — accounts you sign in as.
-// 639170000003 is deliberately NOT seeded: it stays free so onboarding can be
-// tested as a brand-new user (npm run dev:free-number frees it again).
+// Test accounts you sign in as. Sign-in is email OTP; the e2e suites fetch the
+// code through the admin API, and for a manual sign-in you can use your own
+// address. dana@pawme.test is deliberately NOT seeded: it stays free so
+// onboarding can be tested as a brand-new user (npm run dev:free-account).
 const TEST_ACCOUNTS = [
-  { phone: '639170000001', owner: 'Ana', area: 'ayala', pet: { name: 'Mochi', species: 'dog', breed: 'Shih Tzu', sex: 'female', born: '2023-02-01', size: 'small', intents: ['playdate', 'friendship'], tags: ['playful', 'friendly', 'loves_fetch'] } },
-  { phone: '639170000002', owner: 'Ben', area: 'rockwell', pet: { name: 'Bruno', species: 'dog', breed: 'Aspin', mixed: true, sex: 'male', born: '2022-06-01', size: 'small', intents: ['playdate', 'walking_buddy'], tags: ['playful', 'energetic', 'friendly', 'loves_walks'] } },
-  { phone: '639170000009', owner: 'Mod (PAWME)', area: 'ayala', role: 'moderator' },
+  { email: 'ana@pawme.test', owner: 'Ana', area: 'ayala', pet: { name: 'Mochi', species: 'dog', breed: 'Shih Tzu', sex: 'female', born: '2023-02-01', size: 'small', intents: ['playdate', 'friendship'], tags: ['playful', 'friendly', 'loves_fetch'] } },
+  { email: 'ben@pawme.test', owner: 'Ben', area: 'rockwell', pet: { name: 'Bruno', species: 'dog', breed: 'Aspin', mixed: true, sex: 'male', born: '2022-06-01', size: 'small', intents: ['playdate', 'walking_buddy'], tags: ['playful', 'energetic', 'friendly', 'loves_walks'] } },
+  { email: 'mod@pawme.test', owner: 'Mod (PAWME)', area: 'ayala', role: 'moderator' },
 ];
 
-// Fictional owners on a reserved, non-dialable range: 63 999 000 0xxx.
+// Fictional owners on a reserved test domain.
 const P = (name, species, breed, sex, born, size, intents, tags, mixed = false) => ({ name, species, breed, sex, born, size, intents, tags, mixed });
 const SEED_ACCOUNTS = [
   ['Migs', 'poblacion', P('Bantay', 'dog', 'Aspin', 'male', '2021-03-01', 'medium', ['playdate', 'walking_buddy'], ['friendly', 'energetic', 'loves_walks'], true)],
@@ -71,7 +72,7 @@ const SEED_ACCOUNTS = [
   ['Marco', 'urdaneta', P('Mango', 'cat', 'Puspin', 'male', '2024-07-01', 'small', ['playdate', 'friendship'], ['playful', 'energetic', 'good_with_cats'], true)],
   ['Yna', 'sanantonio', P('Ube', 'cat', 'Ragdoll', 'female', '2022-12-01', 'medium', ['friendship'], ['cuddly', 'gentle', 'calm', 'good_with_kids'])],
   ['Cara', 'legazpi', P('Miming', 'cat', 'Puspin', 'female', '2021-09-01', 'small', ['friendship'], ['calm', 'cuddly', 'curious'], true)],
-].map(([owner, area, pet], i) => ({ phone: `63999000${String(i + 1).padStart(4, '0')}`, owner, area, pet }));
+].map(([owner, area, pet], i) => ({ email: `seed${String(i + 1).padStart(2, '0')}@pawme.test`, owner, area, pet }));
 
 // Seed pets that have ALREADY liked a test account's pet, so a right-swipe on
 // them is an instant match and the spine can be exercised from one browser.
@@ -115,9 +116,9 @@ async function reset() {
   console.log(`reset: removed ${seedOwners.length} seed accounts`);
 }
 
-async function upsertAccount(acct, idx, existingByPhone) {
-  let user = existingByPhone.get(acct.phone);
-  if (!user) user = (await must(db.auth.admin.createUser({ phone: acct.phone, phone_confirm: true }), `create user ${acct.phone}`)).user;
+async function upsertAccount(acct, idx, existingByEmail) {
+  let user = existingByEmail.get(acct.email);
+  if (!user) user = (await must(db.auth.admin.createUser({ email: acct.email, email_confirm: true }), `create user ${acct.email}`)).user;
   const [lat, lng] = snap(...AREAS[acct.area]);
   // Spread activity so recency ranking has something to do: most recent, a few stale.
   const lastActive = new Date(Date.now() - [0.2, 1, 3, 8, 26, 50, 100, 300][idx % 8] * 3600e3).toISOString();
@@ -150,11 +151,11 @@ async function upsertAccount(acct, idx, existingByPhone) {
 console.log(`seeding DEV project ${ref} …`);
 if (args.has('--reset')) await reset();
 
-const existingByPhone = new Map((await allUsers(db, must)).filter((u) => u.phone).map((u) => [u.phone, u]));
+const existingByEmail = new Map((await allUsers(db, must)).filter((u) => u.email).map((u) => [u.email.toLowerCase(), u]));
 const pets = new Map();
 const accounts = [...TEST_ACCOUNTS, ...SEED_ACCOUNTS];
 for (const [i, acct] of accounts.entries()) {
-  const pet = await upsertAccount(acct, i, existingByPhone);
+  const pet = await upsertAccount(acct, i, existingByEmail);
   if (pet) pets.set(pet.name, pet);
   process.stdout.write('.');
 }
@@ -166,4 +167,4 @@ for (const [from, to, action] of PRE_LIKES) {
 
 const count = await must(db.from('pets').select('species', { count: 'exact', head: false }).eq('is_seed', true), 'count');
 console.log(`\ndone: ${accounts.length} seed accounts, ${count.length} seed pets (${count.filter((p) => p.species === 'dog').length} dogs, ${count.filter((p) => p.species === 'cat').length} cats), ${PRE_LIKES.length} pre-likes.`);
-console.log('sign in with 0917 000 0001 / 0002 (pets) or 0009 (moderator), OTP 123456. 0917 000 0003 is left free for onboarding.');
+console.log('test accounts: ana@pawme.test / ben@pawme.test (pets), mod@pawme.test (moderator); dana@pawme.test is left free for onboarding.');

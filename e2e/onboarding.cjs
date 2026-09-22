@@ -1,9 +1,10 @@
 // Run (dev server up, dev project seeded):
-//   npm run dev:free-number && node --env-file=.env.seed.local e2e/onboarding.cjs
-// Proves a BRAND-NEW user (0917 000 0003 — a Supabase test number with no account)
+//   npm run dev:free-account && node --env-file=.env.seed.local e2e/onboarding.cjs
+// Proves a BRAND-NEW user (dana@pawme.test — an address with no account)
 // can get from zero to swiping, and checks what actually landed in the database
 // and in storage (dev project only; the service key is used for verification only).
 const { chromium } = require('playwright');
+const lib = require('./lib.cjs');
 const sharp = require('sharp');
 const path = require('path');
 const fs = require('fs');
@@ -12,7 +13,6 @@ const { createClient } = require('@supabase/supabase-js');
 const OUT = path.join(__dirname, 'shots');
 fs.mkdirSync(OUT, { recursive: true });
 const URL_ = 'http://localhost:5173/';
-const PHONE = '639170000003';
 if (!/ooigdeefqwgzkpujvexu/.test(process.env.SUPABASE_URL ?? '')) { console.error('refused: SUPABASE_URL is not pawme-dev'); process.exit(1); }
 const admin = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 
@@ -24,29 +24,22 @@ const shot = (page, name) => page.screenshot({ path: `${OUT}/${name}.png` });
 const BGC = { latitude: 14.5507, longitude: 121.0509 };         // BGC High Street — inside the 3.5 km circle, outside Makati
 const SALCEDO = { latitude: 14.560123, longitude: 121.022456 }; // Salcedo Village, Makati
 
-async function findUser() {
-  const { data } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
-  return data.users.find((u) => u.phone === PHONE);
-}
-async function freeNumber() {
-  const u = await findUser();
-  if (!u) return;
-  const files = [];
-  for (const folder of (await admin.storage.from('pet-photos').list(u.id)).data ?? []) for (const f of (await admin.storage.from('pet-photos').list(`${u.id}/${folder.name}`)).data ?? []) files.push(`${u.id}/${folder.name}/${f.name}`);
-  if (files.length) await admin.storage.from('pet-photos').remove(files);
-  await admin.auth.admin.deleteUser(u.id);
-}
+const findUser = () => lib.findUser(lib.EMAILS.fresh);
+const freeNumber = () => lib.freeAccount(lib.EMAILS.fresh);
 
 async function signUp(page) {
+  await lib.stubOtpSend(page);
   await page.goto(URL_);
   await page.waitForSelector('text=Get started');
   return page;
 }
 async function throughOtpAndAbout(page, name) {
   await page.click('text=Get started');
-  await page.fill('#phone', '0917 000 0003');
+  await page.fill('#email', lib.EMAILS.fresh);
   await page.click('text=Send code');
-  await page.fill('#otp', '123456');
+  await page.waitForSelector('#otp');
+  await lib.ensureUser(lib.EMAILS.fresh); // the stubbed send would have created the user
+  await page.fill('#otp', await lib.otpFor(lib.EMAILS.fresh));
   await page.click('text=Verify');
   await page.waitForSelector('text=First, about you', { timeout: 20000 });
   await page.fill('#owner-name', name);
@@ -99,7 +92,7 @@ async function throughOtpAndAbout(page, name) {
 
   // ============ PASS 2 — the full path with device location, from zero
   await freeNumber();
-  check('0917 000 0003 has no account before we start', !(await findUser()));
+  check('dana@pawme.test has no account before we start', !(await findUser()));
   const { ctx, page } = await mk({ permissions: ['geolocation'], geolocation: BGC });
   await signUp(page);
   await shot(page, 'o1-welcome');
@@ -181,8 +174,8 @@ async function throughOtpAndAbout(page, name) {
   check('pet row: Biscuit, dog, female, small, ~27 months, no breed, cluster makati, NOT seed', pet.name === 'Biscuit' && pet.species === 'dog' && pet.sex === 'female' && pet.size === 'small' && Math.abs(months - 27) <= 1 && pet.breed === null && pet.cluster_id === 'makati' && pet.is_seed === false, `${months} months`);
   check('intents + 4 tags saved', pet.intents.join() === 'playdate,walking_buddy' && pet.pet_tags.length === 4, pet.pet_tags.map((t) => t.tag).join(','));
   check('photo rows: positions 1,2 inside the owner\'s own folder', pet.pet_photos.length === 2 && pet.pet_photos.map((p) => p.position).sort().join() === '1,2' && pet.pet_photos.every((p) => p.storage_path.startsWith(`${user.id}/${pet.id}/`)));
-  const ownerRow = (await admin.from('owners').select('display_name, adult_confirmed_at, phone_verified_at, is_seed').eq('id', user.id).single()).data;
-  check('owner: name, 18+ timestamp, phone verified, NOT seed', ownerRow.display_name === 'Dana' && !!ownerRow.adult_confirmed_at && !!ownerRow.phone_verified_at && ownerRow.is_seed === false);
+  const ownerRow = (await admin.from('owners').select('display_name, adult_confirmed_at, email_verified_at, email, is_seed').eq('id', user.id).single()).data;
+  check('owner: name, 18+ timestamp, EMAIL verified (badge), login email copied, NOT seed', ownerRow.display_name === 'Dana' && !!ownerRow.adult_confirmed_at && !!ownerRow.email_verified_at && ownerRow.email === lib.EMAILS.fresh && ownerRow.is_seed === false);
 
   // --- the stored photo: EXIF gone, resized, compressed
   const first = pet.pet_photos.find((p) => p.position === 1).storage_path;
@@ -203,8 +196,7 @@ async function throughOtpAndAbout(page, name) {
 
   // --- the other side: a seeded account now sees the new pet in ITS deck
   const ana = (await mk({})).page;
-  await ana.goto(URL_); await ana.click('text=Get started'); await ana.fill('#phone', '9170000001'); await ana.click('text=Send code'); await ana.fill('#otp', '123456'); await ana.click('text=Verify');
-  await ana.waitForSelector('[role=group][aria-label*="Swipe right"]', { timeout: 20000 });
+  await lib.signIn(ana, lib.EMAILS.ana, { waitFor: '[role=group][aria-label*="Swipe right"]' });
   let seen = false;
   for (let i = 0; i < 30 && !seen; i++) {
     const name = ((await ana.locator('[role=group][aria-label*="Swipe right"]').getAttribute('aria-label')) ?? '').split('.')[0];

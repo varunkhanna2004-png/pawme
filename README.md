@@ -7,7 +7,7 @@ Playdates and friends for your pet, in one neighbourhood at a time. V1 is a mobi
 Scope and decisions live in [`00-MASTER-PROMPT.md`](00-MASTER-PROMPT.md) and [`docs/V1-SCOPE.md`](docs/V1-SCOPE.md). Screenshots of each flow working are in [`docs/spine-proof/`](docs/spine-proof/).
 
 - **Frontend:** React 19 + Vite + TypeScript + Tailwind, installable PWA (`vite-plugin-pwa`)
-- **Backend:** Supabase — Postgres with RLS on every table, phone-OTP auth, Storage, Realtime, one Edge Function
+- **Backend:** Supabase — Postgres with RLS on every table, email-OTP auth, Storage, Realtime, one Edge Function
 - **No** separate API server, payments, Redis or queues (master prompt §4)
 
 ## Two Supabase projects — never mix them up
@@ -44,14 +44,20 @@ npm install
 npm run dev            # http://localhost:5173
 ```
 
-Sign in with a Supabase **test phone number** (no SMS is sent), code `123456`:
+Sign-in is **email OTP** (a 6-digit code, no password, no SMS provider). To sign in as yourself, use your own address — the code arrives by email. The seeded test accounts have no mailbox; the end-to-end suites fetch their codes through the admin API instead (`e2e/lib.cjs`), and you can do the same by hand:
 
-| Number | Account |
+```bash
+node --env-file=.env.seed.local -e "require('@supabase/supabase-js').createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY).auth.admin.generateLink({ type: 'magiclink', email: 'ana@pawme.test' }).then(r => console.log(r.data.properties.email_otp))"
+```
+
+| Email | Account |
 |---|---|
-| `0917 000 0001` | Ana + Mochi (seeded) |
-| `0917 000 0002` | Ben + Bruno (seeded) |
-| `0917 000 0003` | **kept free** — signs up as a brand-new user (onboarding) |
-| `0917 000 0009` | moderator (lands on the moderation queue) |
+| `ana@pawme.test` | Ana + Mochi (seeded) |
+| `ben@pawme.test` | Ben + Bruno (seeded) |
+| `dana@pawme.test` | **kept free** — signs up as a brand-new user (onboarding) |
+| `mod@pawme.test` | moderator (lands on the moderation queue) |
+
+Phone sign-in is off. The phone columns and the phone-ban path stay in the schema, dormant, so phone can come back later as an optional extra verification badge.
 
 Thor, Kimchi, Coco and Yuki have already liked Mochi, so a right-swipe on them as Ana is an instant match.
 
@@ -60,7 +66,8 @@ Thor, Kimchi, Coco and Yuki have already liked Mochi, so a right-swipe on them a
 ```bash
 npm run seed:dev            # create / refresh seed accounts (all flagged is_seed, photos carry a SEED ribbon)
 npm run seed:dev:reset      # delete every seed account, then seed again
-npm run dev:free-number     # delete whatever account holds 0917 000 0003 so it is "new" again
+npm run dev:free-account    # delete whatever account holds dana@pawme.test so it is "new" again
+npm run dev:free-account -- you@example.com   # …or any other address
 supabase db query --linked -f e2e/reset-test-accounts.sql   # clear matches/swipes/blocks/reports/bans on the test accounts
 ```
 
@@ -73,15 +80,15 @@ update public.ranking_config set allow_seed = true where cluster_id = 'makati';
 ### Tests
 
 ```bash
-npm run test:db     # 199 database tests (RLS, grants, functions) on in-memory Postgres — no Docker needed
+npm run test:db     # 206 database tests (RLS, grants, functions) on in-memory Postgres — no Docker needed
 npm run typecheck
 npm run build
 
 # end-to-end, in headless Chrome against the dev project (dev server must be running)
 npm i --no-save playwright && npx playwright install chromium
-node e2e/spine.cjs                                          # discover → match → realtime chat
 node e2e/welcome.cjs                                        # welcome screen: What's on PAWME + CTA above the fold
-node e2e/safety.cjs                                         # report / block / unmatch / moderation
+node --env-file=.env.seed.local e2e/spine.cjs               # discover → match → realtime chat
+node --env-file=.env.seed.local e2e/safety.cjs              # report / block / unmatch / moderation
 node --env-file=.env.seed.local e2e/onboarding.cjs          # brand-new user → swiping; EXIF stripping
 node --env-file=.env.seed.local e2e/share.cjs               # share card is public-safe; ?ref= credit
 node --env-file=.env.seed.local e2e/playdate.cjs            # propose → accept / counter / decline; feedback prompt
@@ -92,7 +99,7 @@ Reset the test accounts between suites (command above).
 
 ## Database
 
-Migrations are in `supabase/migrations/` (13 files). The Supabase CLI is linked to **Pawme-Dev**; check before pushing anything:
+Migrations are in `supabase/migrations/` (14 files). The Supabase CLI is linked to **Pawme-Dev**; check before pushing anything:
 
 ```bash
 cat supabase/.temp/project-ref          # must print the project you intend
@@ -107,7 +114,9 @@ Expected advisor output: ~19 "SECURITY DEFINER function executable by authentica
 Per-project dashboard settings that migrations cannot set:
 
 - **Realtime → Settings → "Allow public access": OFF.** The app uses private channels only; with this on, their access policies are not enforced.
-- **Authentication → Sign In / Providers → Phone:** enabled with an SMS provider. Dev also lists the test numbers above. Production must **not** have test numbers.
+- **Authentication → Sign In / Providers → Email:** enabled, with **Confirm email** off (the OTP itself proves the address) and **Email OTP length** 6. Phone provider: off.
+- **Authentication → Email Templates → Magic Link** (and **Confirm signup**): the body must show the code — include `{{ .Token }}`. The default templates only contain a link. Example body: `<h2>Your PAWME code</h2><p>Enter this code in the app: <b>{{ .Token }}</b></p><p>It expires in an hour. If you didn't ask for it, ignore this email.</p>`
+- **Authentication → SMTP:** Supabase's built-in sender is rate-limited to a handful of emails per hour — fine for a dashboard smoke test, not for a pilot. Configure a custom SMTP provider (Resend, Postmark, SendGrid) before real users.
 
 ## Changing the cluster
 
@@ -147,7 +156,7 @@ Netlify works the same way: build `npm run build`, publish `dist`, the same two 
 ### Before pointing a deploy at production
 
 - [ ] `supabase link --project-ref tzifbmuuczogckruptap`, `supabase db push`, deploy `delete-account`, then **re-link to dev**
-- [ ] Realtime "Allow public access" OFF; Phone provider live with a real SMS sender; **no** test numbers
+- [ ] Realtime "Allow public access" OFF; Email provider on with custom SMTP; templates show `{{ .Token }}`; Phone provider off
 - [ ] `select allow_seed from ranking_config` → `false`; `select count(*) from owners where is_seed` → `0`
 - [ ] Make your own account a moderator: `update public.owners set role = 'moderator' where id = '<your auth user id>';`
 - [ ] Advisors clean (see above); Vercel variables switched to the production URL + publishable key; redeploy; the TEST BUILD ribbon is gone
@@ -175,7 +184,7 @@ e2e/              Playwright end-to-end suites + dev reset SQL
 - Photos are re-encoded in the browser before upload (`src/lib/image.ts`), which strips EXIF including GPS.
 - Other people's pets are read only through functions that return public-safe fields (`get_deck`, `get_pet_profile`, `get_inbox`), never from base tables.
 - The share card renderer (`src/lib/shareCard.ts`) is only ever given pet names and photo URLs.
-- Reports, blocks and suspensions act on the owner, never the pet. A suspended owner's phone is remembered as a hash so deleting the account does not lift the ban.
+- Reports, blocks and suspensions act on the owner, never the pet. A suspended owner's email (normalised: case, +tags, gmail dots) is remembered as a hash so deleting the account does not lift the ban.
 - Account deletion and data export are real (Settings → Your data), per the Philippine Data Privacy Act.
 
 ## Not built yet (V1 per the master prompt)
