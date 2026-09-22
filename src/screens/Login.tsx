@@ -1,7 +1,8 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { normalizePhMobile } from '../lib/format';
 import { OfflineBanner, Spinner } from '../components/States';
+import WhatsOn from '../components/WhatsOn';
 
 // Screens 1–2: welcome / value prop → phone → OTP. The flow is the real one: Supabase phone OTP. In dev the test numbers accept 123456; going
 // live is an SMS-provider switch in the dashboard, not a code change.
@@ -12,6 +13,16 @@ export default function Login() {
   const [otp, setOtp] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The welcome screen scrolls (it lists what's on PAWME). "Get started" sits
+  // above the fold; once it scrolls out of view a compact copy docks to the bottom.
+  const cta = useRef<HTMLButtonElement>(null);
+  const [ctaOffscreen, setCtaOffscreen] = useState(false);
+  useEffect(() => {
+    if (step !== 'welcome' || !cta.current) return;
+    const io = new IntersectionObserver(([entry]) => setCtaOffscreen(!entry.isIntersecting), { threshold: 0.5 });
+    io.observe(cta.current);
+    return () => io.disconnect();
+  }, [step]);
 
   async function sendCode(e: FormEvent) {
     e.preventDefault();
@@ -39,7 +50,7 @@ export default function Login() {
   return (
     <div className="mx-auto flex h-full max-w-md flex-col">
       <OfflineBanner />
-      <div className="flex flex-1 flex-col justify-center gap-6 px-8">
+      <div className={`flex flex-1 flex-col gap-6 px-8 ${step === 'welcome' ? 'min-h-0 overflow-y-auto pb-8 pt-10' : 'justify-center'}`}>
         <div>
           <div className="text-5xl" aria-hidden>🐾</div>
           <h1 className="mt-2 text-4xl font-extrabold tracking-tight text-brand">PAWME</h1>
@@ -54,8 +65,9 @@ export default function Login() {
               <li className="flex gap-3"><span aria-hidden>❤️</span><span><b>Match, then chat.</b> You only talk to owners who liked your pet back.</span></li>
               <li className="flex gap-3"><span aria-hidden>🛡️</span><span><b>Safe by design.</b> Verified phone numbers, approximate distance only, report and block everywhere.</span></li>
             </ul>
-            <button onClick={() => setStep('phone')} className="rounded-full bg-brand py-3.5 text-lg font-bold text-white active:bg-brand-dark">Get started</button>
-            <p className="text-center text-xs text-muted">Now in Makati · more areas soon</p>
+            <button ref={cta} data-testid="cta" onClick={() => setStep('phone')} className="rounded-full bg-brand py-3.5 text-lg font-bold text-white active:bg-brand-dark">Get started</button>
+            <p className="text-center text-xs text-muted">Now in Makati · free during the pilot</p>
+            <WhatsOn />
           </div>
         ) : step === 'phone' ? (
           <form onSubmit={sendCode} className="flex flex-col gap-3">
@@ -82,6 +94,11 @@ export default function Login() {
 
         {error && <p role="alert" className="rounded-xl bg-nope/10 px-4 py-3 text-sm text-nope">{error}</p>}
       </div>
+      {step === 'welcome' && ctaOffscreen && (
+        <div className="border-t border-black/5 bg-white/95 px-5 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] backdrop-blur">
+          <button data-testid="cta-docked" onClick={() => setStep('phone')} className="w-full rounded-full bg-brand py-3 font-bold text-white active:bg-brand-dark">Get started</button>
+        </div>
+      )}
     </div>
   );
 }

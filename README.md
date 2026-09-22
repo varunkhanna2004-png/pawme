@@ -80,6 +80,7 @@ npm run build
 # end-to-end, in headless Chrome against the dev project (dev server must be running)
 npm i --no-save playwright && npx playwright install chromium
 node e2e/spine.cjs                                          # discover → match → realtime chat
+node e2e/welcome.cjs                                        # welcome screen: What's on PAWME + CTA above the fold
 node e2e/safety.cjs                                         # report / block / unmatch / moderation
 node --env-file=.env.seed.local e2e/onboarding.cjs          # brand-new user → swiping; EXIF stripping
 node --env-file=.env.seed.local e2e/share.cjs               # share card is public-safe; ?ref= credit
