@@ -66,7 +66,7 @@ export default function Login() {
               <li className="flex gap-3"><span aria-hidden>🛡️</span><span><b>Safe by design.</b> Verified phone numbers, approximate distance only, report and block everywhere.</span></li>
             </ul>
             <button ref={cta} data-testid="cta" onClick={() => setStep('phone')} className="rounded-full bg-brand py-3.5 text-lg font-bold text-white active:bg-brand-dark">Get started</button>
-            <p className="text-center text-xs text-muted">Now in Makati · free during the pilot</p>
+            <p className="text-center text-xs text-muted">Now in Makati</p>
             <WhatsOn />
           </div>
         ) : step === 'phone' ? (
