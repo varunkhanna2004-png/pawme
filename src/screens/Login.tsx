@@ -57,7 +57,7 @@ export default function Login() {
             <div className="pointer-events-none absolute -left-6 -top-8 rotate-[-20deg]"><PawPrint size={34} opacity={0.12} /></div>
             <div className="min-w-0 flex-1">
               <h1 className="text-4xl font-extrabold tracking-tight text-brand">PAWME</h1>
-              <p className="mt-2 text-lg leading-snug text-muted">Playdates and friends for your pet, right in your neighborhood.</p>
+              <p className="mt-2 text-[17px] leading-snug text-muted">Playdates and friends for your pet, right in your neighborhood.</p>
             </div>
             <HeroArt />
           </div>
