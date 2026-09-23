@@ -12,7 +12,8 @@
     "seed:dev": "node --env-file=.env.seed.local scripts/seed.mjs --dev",
     "seed:dev:reset": "node --env-file=.env.seed.local scripts/seed.mjs --dev --reset",
     "types": "supabase gen types --linked --lang typescript --schema public > src/types/database.types.ts",
-    "dev:free-account": "node --env-file=.env.seed.local scripts/dev-free-account.mjs --dev"
+    "dev:free-account": "node --env-file=.env.seed.local scripts/dev-free-account.mjs --dev",
+    "og": "node scripts/build-og.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.116.0",

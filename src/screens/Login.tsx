@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { supabase } from '../lib/supabase';
 import { OfflineBanner, Spinner } from '../components/States';
 import WhatsOn from '../components/WhatsOn';
+import { HeroArt, PawPrint } from '../components/PetArt';
 
 // Screens 1–2: welcome / value prop → email → 6-digit code. Supabase email OTP:
 // no SMS provider, no sender-ID registration. (Phone stays available in the
@@ -50,12 +51,23 @@ export default function Login() {
   return (
     <div className="mx-auto flex h-full max-w-md flex-col">
       <OfflineBanner />
-      <div className={`flex flex-1 flex-col gap-6 px-8 ${step === 'welcome' ? 'min-h-0 overflow-y-auto pb-8 pt-10' : 'justify-center'}`}>
-        <div>
-          <div className="text-5xl" aria-hidden>🐾</div>
-          <h1 className="mt-2 text-4xl font-extrabold tracking-tight text-brand">PAWME</h1>
-          <p className="mt-2 text-lg text-muted">Playdates and friends for your pet, right in your neighborhood.</p>
-        </div>
+      <div className={`flex flex-1 flex-col gap-6 px-8 ${step === 'welcome' ? 'min-h-0 overflow-y-auto bg-[radial-gradient(120%_60%_at_100%_0%,#ffe4d9_0%,transparent_55%)] pb-8 pt-8' : 'justify-center'}`}>
+        {step === 'welcome' ? (
+          <div className="relative flex items-center gap-2">
+            <div className="pointer-events-none absolute -left-6 -top-8 rotate-[-20deg]"><PawPrint size={34} opacity={0.12} /></div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-4xl font-extrabold tracking-tight text-brand">PAWME</h1>
+              <p className="mt-2 text-lg leading-snug text-muted">Playdates and friends for your pet, right in your neighborhood.</p>
+            </div>
+            <HeroArt />
+          </div>
+        ) : (
+          <div>
+            <div className="text-5xl" aria-hidden>🐾</div>
+            <h1 className="mt-2 text-4xl font-extrabold tracking-tight text-brand">PAWME</h1>
+            <p className="mt-2 text-lg text-muted">Playdates and friends for your pet, right in your neighborhood.</p>
+          </div>
+        )}
 
         {step === 'welcome' ? (
           <div className="flex flex-col gap-4">

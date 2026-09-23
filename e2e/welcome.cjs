@@ -36,6 +36,22 @@ const check = (n, ok, x = '') => { checks.push(!!ok); console.log(ok ? 'PASS' : 
     check(`${label}: no page errors`, errors.length === 0, errors.join(' | '));
     await page.context().close();
   }
+  // ---- link preview (Open Graph / Twitter) — validated on the built page and the image itself
+  {
+    const sharp = require('sharp');
+    const page = await (await browser.newContext()).newPage();
+    await page.goto('http://localhost:5173/');
+    const meta = async (sel) => page.getAttribute(sel, 'content');
+    const og = { title: await meta('meta[property="og:title"]'), desc: await meta('meta[property="og:description"]'), image: await meta('meta[property="og:image"]'), url: await meta('meta[property="og:url"]'), type: await meta('meta[property="og:type"]'), w: await meta('meta[property="og:image:width"]'), h: await meta('meta[property="og:image:height"]'), alt: await meta('meta[property="og:image:alt"]') };
+    const tw = { card: await meta('meta[name="twitter:card"]'), title: await meta('meta[name="twitter:title"]'), image: await meta('meta[name="twitter:image"]') };
+    check('OG tags: title / description / absolute image URL / url / type / dimensions / alt', /PAWME/.test(og.title) && /Makati/.test(og.title) && og.desc.length > 40 && og.image === 'https://www.pawme.biz/og.png' && og.url === 'https://www.pawme.biz/' && og.type === 'website' && og.w === '1200' && og.h === '630' && og.alt.length > 20, JSON.stringify(og));
+    check('Twitter card tags: summary_large_image + title + image', tw.card === 'summary_large_image' && /PAWME/.test(tw.title) && tw.image === og.image);
+    const img = await (await page.request.get('http://localhost:5173/og.png')).body();
+    const m = await sharp(img).metadata();
+    check('og.png is served: 1200×630 PNG, under 300 KB (WhatsApp limit)', m.width === 1200 && m.height === 630 && m.format === 'png' && img.length < 300 * 1024, `${m.width}x${m.height}, ${(img.length / 1024) | 0} KB`);
+    check('hero illustration renders on the welcome screen', (await page.locator('[data-testid=hero-art] svg').count()) >= 3);
+    await page.context().close();
+  }
   await browser.close();
   const failed = checks.filter((c) => !c).length;
   console.log(`\n${checks.length - failed}/${checks.length} checks passed`);
