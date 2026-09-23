@@ -49,6 +49,10 @@ const check = (n, ok, x = '') => { checks.push(!!ok); console.log(ok ? 'PASS' : 
     const img = await (await page.request.get('http://localhost:5173/og.png')).body();
     const m = await sharp(img).metadata();
     check('og.png is served: 1200×630 PNG, under 300 KB (WhatsApp limit)', m.width === 1200 && m.height === 630 && m.format === 'png' && img.length < 300 * 1024, `${m.width}x${m.height}, ${(img.length / 1024) | 0} KB`);
+    // an invite link (?ref=) must carry the identical card — messaging apps cache per exact URL
+    await page.goto('http://localhost:5173/?ref=abc123');
+    const refOg = { title: await meta('meta[property="og:title"]'), image: await meta('meta[property="og:image"]'), url: await meta('meta[property="og:url"]') };
+    check('?ref= URL serves the same OG tags as the bare URL (SPA rewrite keeps them)', refOg.title === og.title && refOg.image === og.image && refOg.url === og.url, JSON.stringify(refOg));
     check('hero illustration renders on the welcome screen', (await page.locator('[data-testid=hero-art] svg').count()) >= 3);
     await page.context().close();
   }

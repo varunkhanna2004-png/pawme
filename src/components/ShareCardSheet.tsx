@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../lib/auth';
 import { renderMatchCard, type SharePet } from '../lib/shareCard';
-import { canShareFiles, copyText, downloadBlob, inviteUrl, shareImage } from '../lib/share';
+import { canShareFiles, copyText, downloadBlob, inviteUrl, shareImage, shareOrigin } from '../lib/share';
 import { Spinner } from './States';
 
 interface Props {
@@ -28,7 +28,7 @@ export default function ShareCardSheet({ mine, theirs, onClose }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    renderMatchCard(mine, theirs, window.location.host)
+    renderMatchCard(mine, theirs, new URL(shareOrigin()).host)
       .then((b) => !cancelled && setBlob(b))
       .catch(() => !cancelled && setFailed(true));
     return () => {

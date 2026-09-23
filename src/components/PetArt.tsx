@@ -58,7 +58,7 @@ export function HeroArt() {
   return (
     <div className="relative h-40 w-44 shrink-0" data-testid="hero-art">
       <svg className="absolute inset-0" viewBox="0 0 176 160" aria-hidden>
-        <defs><linearGradient id="hero-blob" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffe08a" /><stop offset="1" stop-color="#ffb3a0" /></linearGradient></defs>
+        <defs><linearGradient id="hero-blob" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#ffe08a" /><stop offset="1" stopColor="#ffb3a0" /></linearGradient></defs>
         <path d="M22 84 C 6 44, 54 6, 100 14 C 152 22, 178 72, 156 118 C 136 154, 52 162, 26 126 C 14 110, 26 100, 22 84 Z" fill="url(#hero-blob)" />
       </svg>
       <Confetti className="absolute inset-x-2 top-0 h-8 w-40" />

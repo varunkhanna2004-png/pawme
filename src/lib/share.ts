@@ -1,9 +1,18 @@
+import { isProductionProject } from './supabase';
+
 // Sharing + invite links (master prompt §11). Every link carries the sharer's
 // referral code: /?ref=<code>. main.tsx remembers it for the visitor, and
 // claim_referral() credits the inviter once they finish signing up.
+//
+// Production links are always built on the CANONICAL host. Building them from
+// window.location.origin would hand out whatever host the app was installed
+// from (the apex, or an old vercel.app URL): the apex answers scrapers with a
+// bodiless 308, so the link preview came up blank in some messaging apps.
+export const CANONICAL_ORIGIN = 'https://www.pawme.biz';
+export const shareOrigin = () => (isProductionProject && !import.meta.env.DEV ? CANONICAL_ORIGIN : window.location.origin);
 
 export const inviteUrl = (referralCode: string | null | undefined) =>
-  `${window.location.origin}/${referralCode ? `?ref=${referralCode}` : ''}`;
+  `${shareOrigin()}/${referralCode ? `?ref=${referralCode}` : ''}`;
 
 export type ShareResult = 'shared' | 'copied' | 'dismissed' | 'unavailable';
 
